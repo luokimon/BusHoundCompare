@@ -140,8 +140,27 @@ void CBusHoundCompareDlg::OnBnClickedBtnCompare()
 	// TODO: 在此添加控件通知处理程序代码
 	if (m_strDataPath.IsEmpty())
 		MessageBox(_T("请先选取BusHound数据文件!"), _T("警告"), MB_ICONWARNING | MB_OK);
+	do
+	{
+		// 映射数据文件
+		if (MappingDataFile())
+		{
+			// 开启解析数据文件线程
+			CreateDecodeThread();
+		}	
+		else
+			break;
 
-	CompareData();
+		// 映射虚拟内存
+		if (MappingVirtualMemory())
+		{
+			//开启比较数据线程
+			CreateCompareThread();
+		}
+					
+	} while (false);
+	
+	//CompareData();
 	//CFile tmpFile;
 	//tmpFile.Open(_T("tmpData.bin"), CFile::modeCreate | CFile::modeReadWrite);
 
@@ -234,6 +253,53 @@ HANDLE CBusHoundCompareDlg::CreateUserFileMapping(CString strPath, __int64 &file
 	CloseHandle(hFile);
 
 	return hSrcFileMap;
+}
+
+DWORD CBusHoundCompareDlg::GetMappingBlkSize(__int64 srcFileSize)
+{
+	// 得到系统分配粒度
+	SYSTEM_INFO SysInfo;
+	GetSystemInfo(&SysInfo);
+	DWORD dwGran = SysInfo.dwAllocationGranularity;
+
+	if (srcFileSize < BLOCK_UNIT_SIZE * dwGran)
+		return((DWORD)srcFileSize);
+	else
+		return(BLOCK_UNIT_SIZE * dwGran);
+}
+
+// 函数名称: MappingDataFile
+// 函数功能: 映射数据文件
+BOOL CBusHoundCompareDlg::MappingDataFile()
+{
+	// 创建文件映射并获取文件长度
+	m_hSrcFileMap = CreateUserFileMapping(m_strDataPath, m_nSrcFileSize);
+
+	// 设置映射块大小
+	m_dwBlkSize = GetMappingBlkSize(m_nSrcFileSize);
+
+	return TRUE;
+}
+
+// 函数名称: CreateDecodeThread
+// 函数功能: 开启解析数据文件线程
+VOID CBusHoundCompareDlg::CreateDecodeThread()
+{
+
+}
+
+// 函数名称: MappingVirtualMemory
+// 函数功能: 映射虚拟内存
+BOOL CBusHoundCompareDlg::MappingVirtualMemory()
+{
+	return FALSE;
+}
+
+// 函数名称: CreateCompareThread
+// 函数功能: 开启比较数据线程
+VOID CBusHoundCompareDlg::CreateCompareThread()
+{
+
 }
 
 VOID CBusHoundCompareDlg::SetErrCode(UINT uErr)

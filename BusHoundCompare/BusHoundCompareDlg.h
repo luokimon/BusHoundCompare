@@ -5,7 +5,8 @@
 #pragma once
 #include "afxwin.h"
 
-
+#define BLOCK_UNIT_SIZE			(0x400)			// 块单元个数
+#define FAT_MAX_UINT_SIZE		(0x400)			// FAT表预计单元个数        
 // CBusHoundCompareDlg 对话框
 class CBusHoundCompareDlg : public CDialogEx
 {
@@ -43,6 +44,7 @@ private:
 	HANDLE  m_hSrcFileMap;
 	CMutex m_Mutex;
 	UINT m_err;
+	DWORD m_dwBlkSize;
 
 	__int64 m_nSrcFileSize;
 private:
@@ -51,4 +53,11 @@ private:
 	VOID SetErrCode(UINT uErr);
 	UINT GetErrCode();
 	HANDLE CreateUserFileMapping(CString strPath, __int64 &fileSize);
+
+	BOOL MappingDataFile();
+	DWORD GetMappingBlkSize(__int64 srcFileSize);
+	VOID CreateDecodeThread();
+	BOOL MappingVirtualMemory();
+	VOID CreateCompareThread();
+
 };
