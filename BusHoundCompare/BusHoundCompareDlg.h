@@ -6,7 +6,9 @@
 #include "afxwin.h"
 
 #define BLOCK_UNIT_SIZE			(0x400)			// 块单元个数
-#define FAT_MAX_UINT_SIZE		(0x400)			// FAT表预计单元个数     
+#define FAT_MAX_UINT_SIZE		(0x400)			// FAT表预计单元个数
+
+#define CBW_MAX_LEN             (0x1E)			// Command Block Wrapper 长度
 
 UINT  AFX_CDECL BusHoundDecodeThread(LPVOID lpParam);
 UINT  AFX_CDECL BusHoundCompareThread(LPVOID lpParam);
@@ -47,8 +49,9 @@ public:
 	CWinThread	*m_lpDecodeThread;
 	CWinThread	*m_lpCompareThread;
 
+	UINT m_nPhaseStartPoint;
 	UINT m_nDataStartPoint;
-	UINT m_nDataEndPoint;
+	UINT m_nDataLen;
 
 public:
 	DWORD	DecodeThread();
@@ -64,10 +67,17 @@ private:
 	
 	BOOL m_bRun;
 	BOOL m_bEnd;
-	__int64 m_nSrcFileSize;
+	BOOL m_bCompareStart;
+	UINT m_DataFlag;
+
+	__int64 m_nSrcFileSize;	
+	CString m_strResidualData;
+
+	LPBYTE m_lpSrcMapAddress;
+
+	TCHAR m_cCBW[CBW_MAX_LEN];
 private:
 	CString GetCurrentPath();
-	BOOL CompareData();
 
 	BOOL SetErrCode(UINT uErr);
 	UINT GetErrCode();
@@ -75,6 +85,10 @@ private:
 	BOOL SetRunFlag(BOOL  runFlag);
 	BOOL GetEndFlag();
 	BOOL SetEndFlag(BOOL  endFlag);
+	BOOL GetCompareStartFlag();
+	BOOL SetCompareStartFlag(BOOL  startFlag);
+	UINT GetDataFlag();
+	BOOL SetDataFlag(UINT  dataFlag);
 
 	HANDLE CreateUserFileMapping(CString strPath, __int64 &fileSize);
 
@@ -89,8 +103,13 @@ private:
 	void DisplayWindowInfo();
 	void InitialParam();
 
-	void GetDataOffset(__int64 &fileOffset);
+	BOOL CreateMapAddr(HANDLE hFileMap, __int64 &fileOffset, DWORD blkSize, LPBYTE &mapAddr);
+	BOOL DistroyMapAddr(LPBYTE &mapAddr);
+	BOOL GetDataOffset(__int64 &fileOffset, UINT &blkOffset);
 	BOOL AddDisplay(LPCTSTR str);
+
+	CString  FindLine(LPBYTE  pByte, UINT & uiIndex, UINT uiLen);
+	BYTE  StringToByte(CString strChar);
 
 
 
