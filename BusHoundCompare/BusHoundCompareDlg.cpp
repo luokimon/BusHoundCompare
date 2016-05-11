@@ -64,6 +64,7 @@ BEGIN_MESSAGE_MAP(CBusHoundCompareDlg, CDialogEx)
 	ON_BN_CLICKED(IDCANCEL, &CBusHoundCompareDlg::OnBnClickedCancel)
 	ON_BN_CLICKED(IDC_BTN_SELECTPATH, &CBusHoundCompareDlg::OnBnClickedBtnSelectpath)
 	ON_BN_CLICKED(IDC_BTN_COMPARE, &CBusHoundCompareDlg::OnBnClickedBtnCompare)
+	ON_WM_CLOSE()
 END_MESSAGE_MAP()
 
 
@@ -81,7 +82,13 @@ BOOL CBusHoundCompareDlg::OnInitDialog()
 	// TODO: 在此添加额外的初始化代码	
 	InitialParam();
 	DisplayWindowInfo();
-	
+
+	for (int i = 0; i < MAX_DMA_NUM; i++)
+	{
+		m_lpucSecotrData[i] = new BYTE[MAX_TRANS_SEC_NUM*SECTOR];
+	}
+
+	m_lpucSysArea = new BYTE[SYSTEM_AREA_SIZE];
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -105,7 +112,7 @@ void CBusHoundCompareDlg::InitialParam()
 void CBusHoundCompareDlg::DisplayWindowInfo()
 {
 	CString str;
-	
+
 	str.Format(_T("0x%X"), m_Granularity);
 	m_editGranularity.SetWindowText(str);
 
@@ -181,8 +188,8 @@ void CBusHoundCompareDlg::OnBnClickedCancel()
 void CBusHoundCompareDlg::OnBnClickedBtnSelectpath()
 {
 	// TODO: 在此添加控件通知处理程序代码
-	CFileDialog dlg(TRUE, 
-		NULL, 
+	CFileDialog dlg(TRUE,
+		NULL,
 		NULL,
 		OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT,
 		_T("All Files (*.*)|*.*||"),
@@ -511,7 +518,7 @@ BOOL CBusHoundCompareDlg::DistroyMapAddr(LPBYTE &mapAddr)
 	{
 		UnmapViewOfFile(mapAddr);
 	}
-	
+
 	return TRUE;
 }
 
@@ -522,7 +529,7 @@ BOOL CBusHoundCompareDlg::GetDataOffset(__int64 &fileOffset, UINT &blkOffset)
 {
 	if (!CreateMapAddr(m_hSrcFileMap, fileOffset, m_dwBlkSize, m_lpSrcMapAddress))
 		return FALSE;
-	
+
 	while (blkOffset < m_dwBlkSize)
 	{
 		CString strLine = FindLine(m_lpSrcMapAddress, blkOffset, m_dwBlkSize);
@@ -535,13 +542,13 @@ BOOL CBusHoundCompareDlg::GetDataOffset(__int64 &fileOffset, UINT &blkOffset)
 				offset = strLine.Find(_T(" "), m_nDataStartPoint);
 				m_nDataLen = offset - m_nDataStartPoint;
 			}
-				
+
 			else
 			{
 				m_nDataStartPoint = 0;
 				m_nPhaseStartPoint = 0;
 			}
-				
+
 		}
 		else
 		{
@@ -561,14 +568,14 @@ BOOL CBusHoundCompareDlg::GetDataOffset(__int64 &fileOffset, UINT &blkOffset)
 					m_nPhaseStartPoint = 0;
 				}
 			}
-				
+
 		}
-		
+
 		if (m_nDataLen)
 			return TRUE;
 
 	}
-	
+
 	return FALSE;
 }
 
@@ -595,6 +602,11 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 	CString strLine;
 	CString strData;
+	UINT dmaIdx = 0;
+	UINT dataIdx = 0;
+	UINT cbwIdx = 0;
+	UINT phaseType = 0;  // 0:其他状态/1:命令状态/2:数据状态
+	COMMAND_INFO cmdInfo;
 
 	while (GetRunFlag())
 	{
@@ -605,33 +617,82 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 		{
 			strLine = FindLine(m_lpSrcMapAddress, uiBlkOffset, m_dwBlkSize);
 
-			int cmdIdx = strLine.Find(_T("CMD"));
-			int inIdx = strLine.Find(_T("IN"));
-			int outIdx = strLine.Find(_T("OUT"));
+			int cmdIdx = strLine.Find(_T("CMD"), m_nPhaseStartPoint);
+			int inIdx = strLine.Find(_T("IN"), m_nPhaseStartPoint);
+			int outIdx = strLine.Find(_T("OUT"), m_nPhaseStartPoint);
+			int spaceIdx = strLine.Find(_T(" "), m_nPhaseStartPoint);
 
-			if (cmdIdx == m_nPhaseStartPoint)
+			if ((cmdIdx == m_nPhaseStartPoint) || ((spaceIdx == m_nPhaseStartPoint) && (1 == phaseType)))
 			{
+				dataIdx = 0;
+				phaseType = 1;
+				// 获取命令
 				strData = strLine.Mid(m_nDataStartPoint, m_nDataLen);
 				strData.TrimRight();
 
-				UINT cbwIdx = 0;
 				while (strData.GetLength())
 				{
 					strData.TrimLeft();
-
-					m_cCBW[cbwIdx] = StringToByte(strData);
-
+					m_ucCmdData[cbwIdx++] = StringToByte(strData);
 					strData = strData.Mid(BYTE_STRING_LEN);
-					
-
 				}
-
+				if ((m_ucCmdData[0] != 0x28) && (m_ucCmdData[0] != 0x2a))
+					continue;
+				else
+				{
+					cmdInfo.addr = ReverseDWORD(*((DWORD *)&m_ucCmdData[2]));
+					cmdInfo.sectorCnt = ReverseWORD(*((WORD *)&m_ucCmdData[7]));
+					cmdInfo.dmaIdx = dmaIdx++;
+					cmdInfo.direction = (m_ucCmdData[0] == 0x28);
+					m_CommandInfo.push(cmdInfo);
+					continue;
+				}
 			}
-
-			if ((inIdx == m_nPhaseStartPoint) || (outIdx == m_nPhaseStartPoint))
+			else if (!m_CommandInfo.empty())
 			{
-				
+				cbwIdx = 0;
+
+				// 获取数据
+				if (((inIdx == m_nPhaseStartPoint) || (outIdx == m_nPhaseStartPoint)) || ((spaceIdx == m_nPhaseStartPoint) && (2 == phaseType)))
+				{
+					phaseType = 2;
+					strData = strLine.Mid(m_nDataStartPoint, m_nDataLen);
+					strData.TrimRight();
+
+					while (strData.GetLength())
+					{
+						strData.TrimLeft();
+						m_lpucSecotrData[m_CommandInfo.front().dmaIdx][dataIdx++] = StringToByte(strData);
+						strData = strData.Mid(BYTE_STRING_LEN);
+					}
+
+					ASSERT(dataIdx <= m_CommandInfo.front().sectorCnt*SECTOR);
+					if (dataIdx == m_CommandInfo.front().sectorCnt*SECTOR)
+					{
+						if (m_CommandInfo.front().direction)
+						{
+
+						}
+						else
+						{
+							memcpy(&m_lpucSysArea[m_CommandInfo.front().addr*SECTOR], m_lpucSecotrData[m_CommandInfo.front().dmaIdx], m_CommandInfo.front().sectorCnt*SECTOR);
+							m_CommandInfo.pop();
+						}
+					}
+				}
+				else
+				{
+					dataIdx = 0;
+					phaseType = 0;
+				}
 			}
+			else
+			{
+				dataIdx = 0;
+				cbwIdx = 0;
+				phaseType = 0;
+			}
+
 
 		}
 		qwFileOffset += m_dwBlkSize;
@@ -653,11 +714,11 @@ DWORD   CBusHoundCompareDlg::CompareThread()
 {
 	while (GetRunFlag())
 	{
-		
-		if(GetCompareStartFlag())
+
+		if (GetCompareStartFlag())
 		{
 			AddDisplay(_T("比较数据开始!"));
-			
+
 		}
 		else
 		{
@@ -669,39 +730,14 @@ DWORD   CBusHoundCompareDlg::CompareThread()
 	return TRUE;
 }
 
-BYTE  CBusHoundCompareDlg::StringToByte(CString strChar)
-{
-	BYTE  bRet = 0;
-	//int iLen = strChar.GetLength();
-	ASSERT(strChar.GetLength() >= BYTE_STRING_LEN);
-	strChar.MakeUpper();
-
-	for (int i = 0; i< BYTE_STRING_LEN; i++)
-	{
-		TCHAR ch = strChar.GetAt(i);
-		if ((ch <= _T('9')) && (ch >= _T('0')))
-		{
-			bRet <<= 4;
-			bRet |= (ch - _T('0'));
-		}
-		else if ((ch <= _T('F')) && (ch >= _T('A')))
-		{
-			bRet <<= 4;
-			bRet |= (ch - _T('A') + 10);
-		}
-	}
-	return bRet;
-}
-
 CString  CBusHoundCompareDlg::FindLine(LPBYTE  pByte, UINT & uiIndex, UINT uiLen)
 {
 	CString    strRet;
 	char       szChar[2] = "0";
 	char  & ch = szChar[0];
 
-	for (UINT i = uiIndex; i< uiLen; i++)
+	for (UINT i = uiIndex; i < uiLen; i++)
 	{
-		//ch = strChar.GetAt(i);
 		ch = pByte[i];
 		if ((0x0d != ch) && (0x0a != ch))
 		{
@@ -728,4 +764,64 @@ CString  CBusHoundCompareDlg::FindLine(LPBYTE  pByte, UINT & uiIndex, UINT uiLen
 		}
 	}
 	return strRet;
+}
+
+BYTE  CBusHoundCompareDlg::StringToByte(CString strChar)
+{
+	BYTE  bRet = 0;
+	//int iLen = strChar.GetLength();
+	ASSERT(strChar.GetLength() >= BYTE_STRING_LEN);
+	strChar.MakeUpper();
+
+	for (int i = 0; i < BYTE_STRING_LEN; i++)
+	{
+		TCHAR ch = strChar.GetAt(i);
+		if ((ch <= _T('9')) && (ch >= _T('0')))
+		{
+			bRet <<= 4;
+			bRet |= (ch - _T('0'));
+		}
+		else if ((ch <= _T('F')) && (ch >= _T('A')))
+		{
+			bRet <<= 4;
+			bRet |= (ch - _T('A') + 10);
+		}
+	}
+	return bRet;
+}
+
+DWORD CBusHoundCompareDlg::ReverseDWORD(DWORD InData)
+{
+	BYTE   da1 = (BYTE)(InData);
+	BYTE   da2 = (BYTE)(InData >> 8);
+	BYTE   da3 = (BYTE)(InData >> 16);
+	BYTE   da4 = (BYTE)(InData >> 24);
+
+	return ((((DWORD)da1) << 24) | (((DWORD)da2) << 16) | (((DWORD)da3) << 8) | (((DWORD)da4)));
+}
+
+WORD CBusHoundCompareDlg::ReverseWORD(WORD InData)
+{
+	return  ((InData >> 8) | (InData << 8));
+}
+
+void CBusHoundCompareDlg::OnClose()
+{
+	// TODO: 在此添加消息处理程序代码和/或调用默认值
+	for (int i = 0; i < MAX_DMA_NUM; i++)
+	{
+		if (NULL != m_lpucSecotrData[i])
+		{
+			delete[] m_lpucSecotrData[i];
+			m_lpucSecotrData[i] = NULL;
+		}
+	}
+
+	if (NULL != m_lpucSysArea)
+	{
+		delete[] m_lpucSysArea;
+		m_lpucSysArea = NULL;
+	}
+
+	CDialogEx::OnClose();
 }

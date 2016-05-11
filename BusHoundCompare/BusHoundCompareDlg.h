@@ -5,14 +5,29 @@
 #pragma once
 #include "afxwin.h"
 
+#include <queue>
+using namespace std;
+
 #define BLOCK_UNIT_SIZE			(0x400)			// 块单元个数
 #define FAT_MAX_UINT_SIZE		(0x400)			// FAT表预计单元个数
 
 #define CBW_MAX_LEN             (0x1E)			// Command Block Wrapper 长度
+#define SYSTEM_AREA_SIZE        (0x4000000)		// 64M 供系统区使用
+#define MAX_TRANS_SEC_NUM       (0x80)			// 单次最大传输扇区个数
+#define SECTOR                  (0x200)         // 扇区大小
+#define MAX_DMA_NUM				(0x10)			// DMA个数
 #define BYTE_STRING_LEN         (2)             // 每个字符表示 单字节 所占长度
 
 UINT  AFX_CDECL BusHoundDecodeThread(LPVOID lpParam);
 UINT  AFX_CDECL BusHoundCompareThread(LPVOID lpParam);
+
+struct COMMAND_INFO
+{
+	UINT dmaIdx;
+	WORD sectorCnt;
+	DWORD addr;
+	BOOL direction;		// 0:IN/1:OUT
+};
 
 // CBusHoundCompareDlg 对话框
 class CBusHoundCompareDlg : public CDialogEx
@@ -68,15 +83,19 @@ private:
 	
 	BOOL m_bRun;
 	BOOL m_bEnd;
-	BOOL m_bCompareStart;
-	UINT m_DataFlag;
+	BOOL m_bCompareStart;	
 
 	__int64 m_nSrcFileSize;	
 	CString m_strResidualData;
 
 	LPBYTE m_lpSrcMapAddress;
 
-	TCHAR m_cCBW[CBW_MAX_LEN];
+	BYTE m_ucCmdData[CBW_MAX_LEN];
+	BYTE *m_lpucSecotrData[MAX_DMA_NUM];
+	BYTE *m_lpucSysArea;							// 设置 64M 供 FAT 区使用
+	UINT m_DataFlag;
+
+	queue<COMMAND_INFO> m_CommandInfo;
 private:
 	CString GetCurrentPath();
 
@@ -111,6 +130,8 @@ private:
 
 	CString  FindLine(LPBYTE  pByte, UINT & uiIndex, UINT uiLen);
 	BYTE  StringToByte(CString strChar);
+	DWORD ReverseDWORD(DWORD InData);
+	WORD ReverseWORD(WORD InData);
 
 
 
@@ -119,4 +140,5 @@ public:
 	CEdit m_editGranularity;
 	CEdit m_editBlkUnitSize;
 	CEdit m_editFATUnitSize;
+	afx_msg void OnClose();
 };
