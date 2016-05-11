@@ -9,6 +9,7 @@
 #define FAT_MAX_UINT_SIZE		(0x400)			// FAT表预计单元个数
 
 #define CBW_MAX_LEN             (0x1E)			// Command Block Wrapper 长度
+#define BYTE_STRING_LEN         (2)             // 每个字符表示 单字节 所占长度
 
 UINT  AFX_CDECL BusHoundDecodeThread(LPVOID lpParam);
 UINT  AFX_CDECL BusHoundCompareThread(LPVOID lpParam);

@@ -595,7 +595,6 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 	CString strLine;
 	CString strData;
-	CString strTmp;
 
 	while (GetRunFlag())
 	{
@@ -613,22 +612,17 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 			if (cmdIdx == m_nPhaseStartPoint)
 			{
 				strData = strLine.Mid(m_nDataStartPoint, m_nDataLen);
-				strData.Trim();
+				strData.TrimRight();
 
 				UINT cbwIdx = 0;
 				while (strData.GetLength())
 				{
-					int zeroIdx = strData.Find(_T(" "));
-
-					// 判断长度为2(Byte类型的CString长度)
-					ASSERT(2 == zeroIdx);
-
-					strTmp = strData.Mid(0, zeroIdx);
-
-					m_cCBW[cbwIdx] = StringToByte(strTmp);
-
-					strData = strData.Mid(zeroIdx);
 					strData.TrimLeft();
+
+					m_cCBW[cbwIdx] = StringToByte(strData);
+
+					strData = strData.Mid(BYTE_STRING_LEN);
+					
 
 				}
 
@@ -678,10 +672,11 @@ DWORD   CBusHoundCompareDlg::CompareThread()
 BYTE  CBusHoundCompareDlg::StringToByte(CString strChar)
 {
 	BYTE  bRet = 0;
-	int iLen = strChar.GetLength();
+	//int iLen = strChar.GetLength();
+	ASSERT(strChar.GetLength() >= BYTE_STRING_LEN);
 	strChar.MakeUpper();
 
-	for (int i = 0; i< iLen; i++)
+	for (int i = 0; i< BYTE_STRING_LEN; i++)
 	{
 		TCHAR ch = strChar.GetAt(i);
 		if ((ch <= _T('9')) && (ch >= _T('0')))
