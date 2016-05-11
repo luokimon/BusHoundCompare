@@ -14,10 +14,34 @@
 
 // CBusHoundCompareDlg 对话框
 
+UINT  AFX_CDECL BusHoundDecodeThread(LPVOID lpParam)
+{
+	CBusHoundCompareDlg *  lpDlg = (CBusHoundCompareDlg *)lpParam;
 
+	if (lpDlg)
+	{
+		return lpDlg->DecodeThread();
+	}
+
+	return 0;
+}
+
+UINT  AFX_CDECL BusHoundCompareThread(LPVOID lpParam)
+{
+	CBusHoundCompareDlg *  lpDlg = (CBusHoundCompareDlg *)lpParam;
+
+	if (lpDlg)
+	{
+		return lpDlg->CompareThread();
+	}
+
+	return 0;
+}
 
 CBusHoundCompareDlg::CBusHoundCompareDlg(CWnd* pParent /*=NULL*/)
-	: CDialogEx(IDD_BUSHOUNDCOMPARE_DIALOG, pParent)
+	: CDialogEx(IDD_BUSHOUNDCOMPARE_DIALOG, pParent),
+	m_lpDecodeThread(NULL),
+	m_lpCompareThread(NULL)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -26,6 +50,10 @@ void CBusHoundCompareDlg::DoDataExchange(CDataExchange* pDX)
 {
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_EDIT_DATAPATH, m_editDataPath);
+	DDX_Control(pDX, IDC_LIST_SHOWSTATUS, m_listShowStatus);
+	DDX_Control(pDX, IDC_EDIT_GRANULARITY, m_editGranularity);
+	DDX_Control(pDX, IDC_EDIT_BLKUNITSIZE, m_editBlkUnitSize);
+	DDX_Control(pDX, IDC_EDIT_FATUNITSIZE, m_editFATUnitSize);
 }
 
 BEGIN_MESSAGE_MAP(CBusHoundCompareDlg, CDialogEx)
@@ -51,8 +79,28 @@ BOOL CBusHoundCompareDlg::OnInitDialog()
 
 	// TODO: 在此添加额外的初始化代码
 	m_strDataPath.Empty();
+	m_Granularity = GetAllocationGranularity();
+
+	DisplayWindowInfo();
+	
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
+}
+
+// 函数名称: DisplayWindowInfo
+// 函数功能: 显示主界面信息
+void CBusHoundCompareDlg::DisplayWindowInfo()
+{
+	CString str;
+	
+	str.Format(_T("0x%X"), m_Granularity);
+	m_editGranularity.SetWindowText(str);
+
+	str.Format(_T("0x%X"), BLOCK_UNIT_SIZE);
+	m_editBlkUnitSize.SetWindowText(str);
+
+	str.Format(_T("0x%X"), FAT_MAX_UINT_SIZE);
+	m_editFATUnitSize.SetWindowText(str);
 }
 
 // 如果向对话框添加最小化按钮，则需要下面的代码
@@ -140,46 +188,29 @@ void CBusHoundCompareDlg::OnBnClickedBtnCompare()
 	// TODO: 在此添加控件通知处理程序代码
 	if (m_strDataPath.IsEmpty())
 		MessageBox(_T("请先选取BusHound数据文件!"), _T("警告"), MB_ICONWARNING | MB_OK);
-	do
-	{
-		// 映射数据文件
-		if (MappingDataFile())
-		{
-			// 开启解析数据文件线程
-			CreateDecodeThread();
-		}	
-		else
-			break;
 
-		// 映射虚拟内存
-		if (MappingVirtualMemory())
-		{
-			//开启比较数据线程
-			CreateCompareThread();
-		}
-					
-	} while (false);
-	
-	//CompareData();
-	//CFile tmpFile;
-	//tmpFile.Open(_T("tmpData.bin"), CFile::modeCreate | CFile::modeReadWrite);
+	// 创建工作线程
+	CreateWorkThread();
+}
 
+VOID CBusHoundCompareDlg::CreateWorkThread()
+{
+	// 开启解析数据文件线程
+	CreateDecodeThread();
+
+	//开启比较数据线程
+	CreateCompareThread();
 }
 
 BOOL CBusHoundCompareDlg::CompareData()
 {
 	m_hSrcFileMap = CreateUserFileMapping(m_strDataPath, m_nSrcFileSize);
 
-	// 得到系统分配粒度
-	SYSTEM_INFO SysInfo;
-	GetSystemInfo(&SysInfo);
-	DWORD dwGran = SysInfo.dwAllocationGranularity;
-
 	// 偏移地址 
 	__int64 qwFileOffset = 0;
 	// 块大小(设置为1024整数倍)
-	DWORD dwBlockBytes = 0x400 * dwGran;
-	if (m_nSrcFileSize < 0x400 * dwGran)
+	DWORD dwBlockBytes = 0x400 * m_Granularity;
+	if (m_nSrcFileSize < 0x400 * m_Granularity)
 		dwBlockBytes = (DWORD)m_nSrcFileSize;
 	/*
 	while (m_nSrcFileSize > 0)
@@ -255,17 +286,22 @@ HANDLE CBusHoundCompareDlg::CreateUserFileMapping(CString strPath, __int64 &file
 	return hSrcFileMap;
 }
 
-DWORD CBusHoundCompareDlg::GetMappingBlkSize(__int64 srcFileSize)
+// 函数名称: GetAllocationGranularity
+// 函数功能: 获取系统分配粒度
+DWORD CBusHoundCompareDlg::GetAllocationGranularity()
 {
 	// 得到系统分配粒度
 	SYSTEM_INFO SysInfo;
 	GetSystemInfo(&SysInfo);
-	DWORD dwGran = SysInfo.dwAllocationGranularity;
+	return SysInfo.dwAllocationGranularity;
+}
 
-	if (srcFileSize < BLOCK_UNIT_SIZE * dwGran)
-		return((DWORD)srcFileSize);
-	else
-		return(BLOCK_UNIT_SIZE * dwGran);
+// 函数名称: GetMappingBlkSize
+// 函数功能: 获取映射块大小
+// 输入参数: fileSize(文件大小)
+DWORD CBusHoundCompareDlg::GetMappingBlkSize(__int64 fileSize)
+{
+	return (fileSize < BLOCK_UNIT_SIZE * m_Granularity) ? ((DWORD)fileSize) : (BLOCK_UNIT_SIZE * m_Granularity);
 }
 
 // 函数名称: MappingDataFile
@@ -283,13 +319,36 @@ BOOL CBusHoundCompareDlg::MappingDataFile()
 
 // 函数名称: CreateDecodeThread
 // 函数功能: 开启解析数据文件线程
-VOID CBusHoundCompareDlg::CreateDecodeThread()
+DWORD CBusHoundCompareDlg::CreateDecodeThread()
 {
+	DestroyDecodeThread();
 
+	m_lpDecodeThread = AfxBeginThread(BusHoundDecodeThread,				//AFX_THREADPROC pfnThreadProc,
+		(LPVOID)this,						//LPVOID pParam,
+		THREAD_PRIORITY_NORMAL,    		    //int nPriority = THREAD_PRIORITY_NORMAL,
+		NULL,								//UINT nStackSize = 0,
+		0,					                //DWORD dwCreateFlags = 0, 创建后直接启动线程
+		NULL								//LPSECURITY_ATTRIBUTES lpSecurityAttrs = NULL 
+	);
+
+	return (DWORD)m_lpDecodeThread;
+}
+
+void CBusHoundCompareDlg::DestroyDecodeThread()
+{
+	if (m_lpDecodeThread)
+	{
+		Sleep(100);
+
+		m_lpDecodeThread = NULL;
+	}
 }
 
 // 函数名称: MappingVirtualMemory
 // 函数功能: 映射虚拟内存
+// 输入参数:
+// 输出参数:
+// 返回值  :
 BOOL CBusHoundCompareDlg::MappingVirtualMemory()
 {
 	return FALSE;
@@ -297,9 +356,32 @@ BOOL CBusHoundCompareDlg::MappingVirtualMemory()
 
 // 函数名称: CreateCompareThread
 // 函数功能: 开启比较数据线程
-VOID CBusHoundCompareDlg::CreateCompareThread()
+// 输入参数:
+// 输出参数:
+// 返回值  :
+DWORD CBusHoundCompareDlg::CreateCompareThread()
 {
+	DestroyCompareThread();
 
+	m_lpCompareThread = AfxBeginThread(BusHoundCompareThread,				//AFX_THREADPROC pfnThreadProc,
+		(LPVOID)this,						//LPVOID pParam,
+		THREAD_PRIORITY_NORMAL,    		    //int nPriority = THREAD_PRIORITY_NORMAL,
+		NULL,								//UINT nStackSize = 0,
+		0,					                //DWORD dwCreateFlags = 0, 创建后直接启动线程
+		NULL								//LPSECURITY_ATTRIBUTES lpSecurityAttrs = NULL 
+	);
+
+	return (DWORD)m_lpCompareThread;
+}
+
+void CBusHoundCompareDlg::DestroyCompareThread()
+{
+	if (m_lpCompareThread)
+	{
+		Sleep(100);
+
+		m_lpCompareThread = NULL;
+	}
 }
 
 VOID CBusHoundCompareDlg::SetErrCode(UINT uErr)
@@ -320,4 +402,14 @@ UINT CBusHoundCompareDlg::GetErrCode()
 		m_Mutex.Unlock();
 	}
 	return uErr;
+}
+
+DWORD   CBusHoundCompareDlg::DecodeThread()
+{
+	return TRUE;
+}
+
+DWORD   CBusHoundCompareDlg::CompareThread()
+{
+	return TRUE;
 }
