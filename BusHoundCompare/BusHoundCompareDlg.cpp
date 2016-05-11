@@ -77,14 +77,22 @@ BOOL CBusHoundCompareDlg::OnInitDialog()
 	SetIcon(m_hIcon, TRUE);			// 设置大图标
 	SetIcon(m_hIcon, FALSE);		// 设置小图标
 
-	// TODO: 在此添加额外的初始化代码
-	m_strDataPath.Empty();
-	m_Granularity = GetAllocationGranularity();
-
+	// TODO: 在此添加额外的初始化代码	
+	InitialParam();
 	DisplayWindowInfo();
 	
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
+}
+
+// 函数名称: InitialParam
+// 函数功能: 初始化参数
+void CBusHoundCompareDlg::InitialParam()
+{
+	m_nDataStartPoint = 0;
+	m_nDataEndPoint = 0;
+	m_strDataPath.Empty();
+	m_Granularity = GetAllocationGranularity();
 }
 
 // 函数名称: DisplayWindowInfo
@@ -188,9 +196,11 @@ void CBusHoundCompareDlg::OnBnClickedBtnCompare()
 	// TODO: 在此添加控件通知处理程序代码
 	if (m_strDataPath.IsEmpty())
 		MessageBox(_T("请先选取BusHound数据文件!"), _T("警告"), MB_ICONWARNING | MB_OK);
-
-	// 创建工作线程
-	CreateWorkThread();
+	else
+	{
+		// 创建工作线程
+		CreateWorkThread();
+	}
 }
 
 VOID CBusHoundCompareDlg::CreateWorkThread()
@@ -199,7 +209,7 @@ VOID CBusHoundCompareDlg::CreateWorkThread()
 	CreateDecodeThread();
 
 	//开启比较数据线程
-	CreateCompareThread();
+	//CreateCompareThread();
 }
 
 BOOL CBusHoundCompareDlg::CompareData()
@@ -304,19 +314,6 @@ DWORD CBusHoundCompareDlg::GetMappingBlkSize(__int64 fileSize)
 	return (fileSize < BLOCK_UNIT_SIZE * m_Granularity) ? ((DWORD)fileSize) : (BLOCK_UNIT_SIZE * m_Granularity);
 }
 
-// 函数名称: MappingDataFile
-// 函数功能: 映射数据文件
-BOOL CBusHoundCompareDlg::MappingDataFile()
-{
-	// 创建文件映射并获取文件长度
-	m_hSrcFileMap = CreateUserFileMapping(m_strDataPath, m_nSrcFileSize);
-
-	// 设置映射块大小
-	m_dwBlkSize = GetMappingBlkSize(m_nSrcFileSize);
-
-	return TRUE;
-}
-
 // 函数名称: CreateDecodeThread
 // 函数功能: 开启解析数据文件线程
 DWORD CBusHoundCompareDlg::CreateDecodeThread()
@@ -384,32 +381,134 @@ void CBusHoundCompareDlg::DestroyCompareThread()
 	}
 }
 
-VOID CBusHoundCompareDlg::SetErrCode(UINT uErr)
+BOOL CBusHoundCompareDlg::SetErrCode(UINT uErr)
 {
 	if (m_Mutex.Lock())
 	{
 		m_err = uErr;
 		m_Mutex.Unlock();
+		return TRUE;
 	}
+
+	return FALSE;
 }
 
 UINT CBusHoundCompareDlg::GetErrCode()
 {
 	UINT uErr = 0;
+
 	if (m_Mutex.Lock())
 	{
 		uErr = m_err;
 		m_Mutex.Unlock();
 	}
+
 	return uErr;
+}
+
+BOOL CBusHoundCompareDlg::GetRunFlag()
+{
+	BOOL  bRet = FALSE;
+
+	if (m_Mutex.Lock())
+	{
+		bRet = m_bRun;
+		m_Mutex.Unlock();
+	}
+
+	return bRet;
+
+}
+
+BOOL CBusHoundCompareDlg::SetRunFlag(BOOL  runFlag)
+{
+	if (m_Mutex.Lock())
+	{
+		m_bRun = runFlag;
+		m_Mutex.Unlock();
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+BOOL CBusHoundCompareDlg::GetEndFlag()
+{
+	BOOL  bRet = FALSE;
+
+	if (m_Mutex.Lock())
+	{
+		bRet = m_bEnd;
+		m_Mutex.Unlock();
+	}
+
+	return bRet;
+}
+
+BOOL CBusHoundCompareDlg::SetEndFlag(BOOL  endFlag)
+{
+	if (m_Mutex.Lock())
+	{
+		m_bEnd = endFlag;
+		m_Mutex.Unlock();
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+// 函数名称: AddDisplay
+// 函数功能: 显示信息
+BOOL CBusHoundCompareDlg::AddDisplay(LPCTSTR str)
+{
+	if (m_Mutex.Lock())
+	{
+		m_listShowStatus.AddString(str);
+		m_Mutex.Unlock();
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+void CBusHoundCompareDlg::GetDataOffset(__int64 &fileOffset)
+{
+
 }
 
 DWORD   CBusHoundCompareDlg::DecodeThread()
 {
+	__int64 qwFileOffset = 0;
+
+	AddDisplay(_T("解析数据开始!"));
+	// 创建文件映射并获取文件长度
+	m_hSrcFileMap = CreateUserFileMapping(m_strDataPath, m_nSrcFileSize);
+
+	// 设置映射块大小
+	m_dwBlkSize = GetMappingBlkSize(m_nSrcFileSize);
+
+	// 根据数据文件计算数据偏移
+	GetDataOffset(qwFileOffset);
+
+	while (GetRunFlag())
+	{
+
+	}
+
+	SetEndFlag(TRUE);
+	AddDisplay(_T("解析数据结束!"));
 	return TRUE;
 }
 
 DWORD   CBusHoundCompareDlg::CompareThread()
 {
+	AddDisplay(_T("比较数据开始!"));
+	while (GetRunFlag())
+	{
+
+	}
+
+	SetEndFlag(TRUE);
+	AddDisplay(_T("比较数据结束!"));
 	return TRUE;
 }

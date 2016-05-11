@@ -47,29 +47,37 @@ public:
 	CWinThread	*m_lpDecodeThread;
 	CWinThread	*m_lpCompareThread;
 
+	UINT m_nDataStartPoint;
+	UINT m_nDataEndPoint;
+
 public:
 	DWORD	DecodeThread();
 	DWORD   CompareThread();
 
 private:
-	
-
 	CString m_strDataPath;
 	HANDLE  m_hSrcFileMap;
 	CMutex m_Mutex;
 	UINT m_err;
 	DWORD m_dwBlkSize;
 	DWORD m_Granularity;
-
+	
+	BOOL m_bRun;
+	BOOL m_bEnd;
 	__int64 m_nSrcFileSize;
 private:
 	CString GetCurrentPath();
 	BOOL CompareData();
-	VOID SetErrCode(UINT uErr);
+
+	BOOL SetErrCode(UINT uErr);
 	UINT GetErrCode();
+	BOOL GetRunFlag();
+	BOOL SetRunFlag(BOOL  runFlag);
+	BOOL GetEndFlag();
+	BOOL SetEndFlag(BOOL  endFlag);
+
 	HANDLE CreateUserFileMapping(CString strPath, __int64 &fileSize);
 
-	BOOL MappingDataFile();
 	DWORD GetMappingBlkSize(__int64 fileSize);
 	DWORD CreateDecodeThread();
 	void DestroyDecodeThread();
@@ -79,6 +87,12 @@ private:
 	VOID CreateWorkThread();
 	DWORD GetAllocationGranularity();
 	void DisplayWindowInfo();
+	void InitialParam();
+
+	void GetDataOffset(__int64 &fileOffset);
+	BOOL AddDisplay(LPCTSTR str);
+
+
 
 public:
 	CListBox m_listShowStatus;
