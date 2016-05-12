@@ -90,6 +90,8 @@ BOOL CBusHoundCompareDlg::OnInitDialog()
 
 	m_lpucSysArea = new BYTE[SYSTEM_AREA_SIZE];
 	m_lpucDataArea = new BYTE[DATA_AREA_SIZE];
+	m_DataAreaMap = new vector<DWORD>;
+	(*m_DataAreaMap).reserve(DATA_AREA_MAP_SIZE);
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -101,6 +103,7 @@ void CBusHoundCompareDlg::InitialParam()
 	m_bRun = FALSE;
 	m_bEnd = FALSE;
 	m_bCompareStart = FALSE;
+	m_bStartWriteFlag = FALSE;
 
 	m_nDataStartPoint = 0;
 	m_nDataLen = 0;
@@ -609,15 +612,13 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 	CString strLine;
 	CString strData;
-	UINT dmaIdx = 0;
-	UINT dataIdx = 0;
-	UINT cbwIdx = 0;
-	UINT phaseType = 0;  // 0:其他状态/1:命令状态/2:数据状态
-	COMMAND_INFO cmdInfo;
-	BOOL bStartWriteFlag = FALSE;
+	
+	m_DataIdx = 0;
+	m_CBWIdx = 0;
 	BOOL bOutOfRange = FALSE;
 
-	m_DataAreaMap.clear();
+	m_PhaseType = 0;
+	m_DmaIdx = 0;
 
 	while (GetRunFlag())
 	{
@@ -640,147 +641,28 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 			int outIdx = strLine.Find(_T("OUT"), m_nPhaseStartPoint);
 			int spaceIdx = strLine.Find(_T(" "), m_nPhaseStartPoint);
 
-			if ((cmdIdx == m_nPhaseStartPoint) || ((spaceIdx == m_nPhaseStartPoint) && (1 == phaseType)))
+			if ((cmdIdx == m_nPhaseStartPoint) || ((spaceIdx == m_nPhaseStartPoint) && (1 == m_PhaseType)))
 			{
 				// 处理两条命令靠近的情况
 				if ((cmdIdx == m_nPhaseStartPoint))
-					cbwIdx = 0;
+					m_CBWIdx = 0;
 
-				dataIdx = 0;
-				phaseType = 1;
-				// 获取命令
-				strData = strLine.Mid(m_nDataStartPoint, m_nDataLen);
-				strData.TrimRight();
-					
+				CommandDecodeFlow(strLine);
 
-				while (strData.GetLength())
-				{
-					strData.TrimLeft();
-					m_ucCmdData[cbwIdx++] = StringToByte(strData);
-					strData = strData.Mid(BYTE_STRING_LEN);
-				}
-				if ((m_ucCmdData[0] != 0x28) && (m_ucCmdData[0] != 0x2a))
-					continue;
-				else
-				{
-					CString strPhaseOfs = strLine.Mid(m_nCmdPhaseOfsPoint, CMD_PHASE_OFS_LEN);
-					strPhaseOfs.Trim();
-
-					if (-1 != strPhaseOfs.Find(_T("2270.1.0")))
-					{
-						strPhaseOfs.Trim();
-					}
-
-					_tcscpy_s(cmdInfo.cmdPhaseOfs, strPhaseOfs);
-					//memcpy(cmdInfo.cmdPhaseOfs, strPhaseOfs, strPhaseOfs.GetLength() + 1);
-					cmdInfo.addr = ReverseDWORD(*((DWORD *)&m_ucCmdData[2]));
-					cmdInfo.sectorCnt = ReverseWORD(*((WORD *)&m_ucCmdData[7]));
-					cmdInfo.dmaIdx = dmaIdx++;
-					cmdInfo.direction = (m_ucCmdData[0] == 0x2a);
-					m_CommandInfo.push(cmdInfo);
-
-					if(cmdInfo.direction)
-						bStartWriteFlag = TRUE;
-					//ASSERT(m_CommandInfo.size() < 2);
-					continue;
-				}
 			}
-			else if (((inIdx == m_nPhaseStartPoint) || (outIdx == m_nPhaseStartPoint)) || ((spaceIdx == m_nPhaseStartPoint) && (2 == phaseType)))
+			else if (((inIdx == m_nPhaseStartPoint) || (outIdx == m_nPhaseStartPoint)) || ((spaceIdx == m_nPhaseStartPoint) && (2 == m_PhaseType)))
 			{
 				// 处理两条数据靠近的情况
 				if((inIdx == m_nPhaseStartPoint) || (outIdx == m_nPhaseStartPoint))
-					dataIdx = 0;
+					m_DataIdx = 0;
 
-				phaseType = 2;
-				cbwIdx = 0;
-
-				// 未开始写之前不比较数据
-				if (!bStartWriteFlag)
-				{
-					if (!m_CommandInfo.empty())
-					{
-						m_CommandInfo.pop();
-						dmaIdx = 0;
-					}
-					continue;
-				}
-					
-						
-					
-
-				// 获取数据
-				if (!m_CommandInfo.empty())
-				{
-					
-					strData = strLine.Mid(m_nDataStartPoint, m_nDataLen);    // 6ms
-					strData.TrimRight();
-
-
-					while (strData.GetLength())
-					{
-						strData.TrimLeft();
-						m_lpucSecotrData[m_CommandInfo.front().dmaIdx][dataIdx++] = StringToByte(strData);
-						strData = strData.Mid(BYTE_STRING_LEN);
-					}
-
-					//ASSERT(dataIdx <= (UINT)m_CommandInfo.front().sectorCnt*SECTOR);
-					if (dataIdx == m_CommandInfo.front().sectorCnt*SECTOR)
-					{
-						if (m_CommandInfo.front().direction)
-						{
-							if (m_CommandInfo.front().addr < (SYSTEM_AREA_SIZE / SECTOR))
-							{
-								memcpy(&m_lpucSysArea[m_CommandInfo.front().addr*SECTOR], m_lpucSecotrData[m_CommandInfo.front().dmaIdx], m_CommandInfo.front().sectorCnt*SECTOR);
-							}
-							else
-							{
-								memcpy(&m_lpucDataArea[m_DataAreaMap.size()*SECTOR], m_lpucSecotrData[m_CommandInfo.front().dmaIdx], m_CommandInfo.front().sectorCnt*SECTOR);
-								for (int i = 0; i < m_CommandInfo.front().sectorCnt; i++)
-								{
-									m_DataAreaMap.insert(make_pair(m_CommandInfo.front().addr, m_DataAreaMap.size()));
-								}
-								
-							}
-							dmaIdx--;
-							m_CommandInfo.pop();
-						}
-						else
-						{
-							if (bStartWriteFlag)
-							{
-								if (m_CommandInfo.front().addr < (SYSTEM_AREA_SIZE / SECTOR))
-								{
-									if (0 != memcmp(&m_lpucSysArea[m_CommandInfo.front().addr*SECTOR], m_lpucSecotrData[m_CommandInfo.front().dmaIdx], m_CommandInfo.front().sectorCnt*SECTOR))
-									{
-										CString strShow;
-										strShow.Format(_T("Error Address: 0x%8X, Error Phase Offset: %s"), m_CommandInfo.front().addr, m_CommandInfo.front().cmdPhaseOfs);
-										AddDisplay(strShow);
-									}
-								}
-								else
-								{
-									for (int i = 0; i < m_CommandInfo.front().sectorCnt; i++)
-									{
-										if (0 != memcmp(&m_lpucDataArea[m_DataAreaMap[m_CommandInfo.front().addr+i]*SECTOR], &m_lpucSecotrData[m_CommandInfo.front().dmaIdx][i*SECTOR], SECTOR))
-										{
-											CString strShow;
-											strShow.Format(_T("Error Address: 0x%8X, Error Phase Offset: %s"), m_CommandInfo.front().addr, m_CommandInfo.front().cmdPhaseOfs);
-											AddDisplay(strShow);
-										}
-									}
-								}
-							}
-							dmaIdx--;
-							m_CommandInfo.pop();
-						}
-					}
-				}
+				DataDecodeFlow(strLine);
 			}
 			else
 			{
-				dataIdx = 0;
-				cbwIdx = 0;
-				phaseType = 0;
+				m_DataIdx = 0;
+				m_CBWIdx = 0;
+				m_PhaseType = 0;
 			}
 		}
 		// 判断越界则跳出
@@ -789,7 +671,7 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 		qwFileOffset += m_dwBlkSize;
 
-		
+
 		if (qwFileOffset > m_nSrcFileSize)
 			break;
 
@@ -805,6 +687,211 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 	SetEndFlag(TRUE);
 	AddDisplay(_T("解析数据结束!"));
 	return TRUE;
+}
+
+// 函数名称: CommandDecodeFlow
+// 函数功能: 命令解析流程
+// 输入参数: strLine(命令字符串行)
+BOOL CBusHoundCompareDlg::CommandDecodeFlow(CString &strLine)
+{
+	CString strData;
+	COMMAND_INFO cmdInfo;
+
+	m_DataIdx = 0;		// 数据索引清空
+	m_PhaseType = 1;	// 状态标记为命令
+
+	// 获取命令字符串
+	strData = strLine.Mid(m_nDataStartPoint, m_nDataLen);
+	strData.TrimRight();
+
+	// 命令字符串转命令字符数组
+	while (strData.GetLength())
+	{
+		strData.TrimLeft();
+		m_ucCmdData[m_CBWIdx++] = StringToByte(strData);
+		strData = strData.Mid(BYTE_STRING_LEN);
+	}
+
+	// 筛选命令(0x28:读入/0x2A:写出)
+	if ((m_ucCmdData[CMD_BLK_CMDIDX] != 0x28) && (m_ucCmdData[CMD_BLK_CMDIDX] != 0x2a))
+	{
+		return FALSE;
+	}
+	else
+	{
+		// 获取命令状态偏移
+		CString strCmdPhaseOfs = strLine.Mid(m_nCmdPhaseOfsPoint, CMD_PHASE_OFS_LEN);
+		
+		// 获取命令字符串
+		cmdInfo.dmaIdx = m_DmaIdx++;
+		cmdInfo.addr = ReverseDWORD(*((DWORD *)&m_ucCmdData[CMD_BLK_ADDRIDX]));
+		cmdInfo.sectorCnt = ReverseWORD(*((WORD *)&m_ucCmdData[CMD_BLK_LENIDX]));
+		cmdInfo.direction = (m_ucCmdData[CMD_BLK_CMDIDX] == 0x2a);
+		_tcscpy_s(cmdInfo.cmdPhaseOfs, strCmdPhaseOfs);
+		m_CommandInfo.push(cmdInfo);
+
+		// 设置写入标记
+		if (cmdInfo.direction)
+			m_bStartWriteFlag = TRUE;
+	}
+
+	return TRUE;
+}
+
+// 函数名称: DataDecodeFlow
+// 函数功能: 数据解析流程
+// 输入参数: strLine(命令字符串行)
+BOOL CBusHoundCompareDlg::DataDecodeFlow(CString &strLine)
+{
+	CString strData;
+
+	m_CBWIdx = 0;			// 命令索引清空
+	m_PhaseType = 2;		// 状态标记为数据
+		   
+	if (!ExistedWriteFlag())
+		return FALSE;
+	
+
+	DWORD addr = m_CommandInfo.front().addr;
+	WORD secCnt = m_CommandInfo.front().sectorCnt;
+	UINT dmaIdx = m_CommandInfo.front().dmaIdx;
+	TCHAR *cmdPhaseOfs = m_CommandInfo.front().cmdPhaseOfs;
+
+	if (!m_CommandInfo.empty())
+	{
+		// 获取数据字符串
+		strData = strLine.Mid(m_nDataStartPoint, m_nDataLen);
+		strData.TrimRight();
+
+		// 数据字符串转换为字符数组
+		while (strData.GetLength())
+		{
+			strData.TrimLeft();
+			m_lpucSecotrData[m_CommandInfo.front().dmaIdx][m_DataIdx++] = StringToByte(strData);
+			strData = strData.Mid(BYTE_STRING_LEN);
+		}
+
+		if (m_DataIdx == m_CommandInfo.front().sectorCnt*SECTOR)
+		{
+			if (m_CommandInfo.front().direction)
+			{
+				// 写出数据
+				if (!PseudoWriteData(addr, secCnt, dmaIdx))
+				{
+					return FALSE;
+				}
+			}
+			else
+			{
+				// 读入数据
+				if (!PseudoReadData(addr, secCnt, dmaIdx, cmdPhaseOfs))
+				{
+					return FALSE;
+				}
+			}
+		}
+	}
+
+	return TRUE;
+}
+
+// 函数名称: ExistedWriteFlag
+// 函数功能: 判断是否已发送写命令
+BOOL CBusHoundCompareDlg::ExistedWriteFlag()
+{
+	if (!m_bStartWriteFlag)
+	{
+		// 清空命令队列
+		while (!m_CommandInfo.empty())
+		{
+			m_CommandInfo.pop();
+		}
+		m_DmaIdx = 0;				// DMA 索引清空
+
+		return FALSE;
+	}
+	return TRUE;
+}
+
+// 函数名称: PseudoWriteData
+// 函数功能: 模拟 USB 写入数据操作
+// 输入参数: addr(写入地址), secCnt(写入扇区数), dmaIdx(DMA 索引)
+BOOL CBusHoundCompareDlg::PseudoWriteData(DWORD addr, WORD secCnt, DWORD dmaIdx )
+{
+	// 根据地址区别对待(暂时分为前顺序 32M 后映射 16M)
+	if (addr < (SYSTEM_AREA_SIZE / SECTOR))
+	{
+		// 写入顺序系统区
+		memcpy(&m_lpucSysArea[addr*SECTOR], m_lpucSecotrData[dmaIdx], secCnt*SECTOR);
+	}
+	else
+	{
+		for (int i = 0; i < secCnt; i++)
+		{
+			UINT secIdx;
+			vector<DWORD>::iterator result = find((*m_DataAreaMap).begin(), (*m_DataAreaMap).end(), addr + i);
+			if (result == (*m_DataAreaMap).end())	// 未找到
+				secIdx = (*m_DataAreaMap).size();
+			else
+				secIdx = *result;
+
+			if (secIdx >= DATA_AREA_MAP_SIZE)
+				return FALSE;
+			else
+				(*m_DataAreaMap).push_back(addr + i);
+
+			// 写入映射数据区
+			memcpy(&m_lpucDataArea[secIdx*SECTOR], &m_lpucSecotrData[dmaIdx][i*SECTOR], SECTOR);
+		}
+	}
+	m_DmaIdx--;
+	m_CommandInfo.pop();
+
+	return TRUE;
+}
+
+// 函数名称: PseudoReadData
+// 函数功能: 模拟 USB 读出数据操作
+// 输入参数: addr(写入地址), secCnt(写入扇区数), dmaIdx(DMA 索引)
+BOOL CBusHoundCompareDlg::PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs)
+{
+	// 根据地址区别对待(暂时分为前顺序 32M 后映射 16M)
+	if (m_CommandInfo.front().addr < (SYSTEM_AREA_SIZE / SECTOR))
+	{
+		if (0 != memcmp(&m_lpucSysArea[addr*SECTOR], m_lpucSecotrData[dmaIdx], secCnt*SECTOR))
+		{
+			ShowErrInfo(addr, cmdPhaseOfs);
+		}
+	}
+	else
+	{
+		for (int i = 0; i < secCnt; i++)
+		{
+			UINT secIdx;
+			vector<DWORD>::iterator result = find((*m_DataAreaMap).begin(), (*m_DataAreaMap).end(), addr + i);
+			if (result == (*m_DataAreaMap).end())	// 未找到
+				return FALSE;
+			else
+				secIdx = distance((*m_DataAreaMap).begin(), result);
+
+			if (0 != memcmp(&m_lpucDataArea[secIdx*SECTOR], &m_lpucSecotrData[dmaIdx][i*SECTOR], SECTOR))
+			{
+				ShowErrInfo(addr, cmdPhaseOfs);
+			}
+		}
+	}
+
+	m_DmaIdx--;
+	m_CommandInfo.pop();
+
+	return TRUE;
+}
+
+void CBusHoundCompareDlg::ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs)
+{
+	CString strShow;
+	strShow.Format(_T("Error Address: 0x%8X, Error Phase Offset: %s"), addr, cmdPhaseOfs);
+	AddDisplay(strShow);
 }
 
 DWORD   CBusHoundCompareDlg::CompareThread()
@@ -869,10 +956,9 @@ CString  CBusHoundCompareDlg::FindLine(LPBYTE  pByte, UINT & uiIndex, UINT uiLen
 	return strRet;
 }
 
-BYTE  CBusHoundCompareDlg::StringToByte(CString strChar)
+BYTE  CBusHoundCompareDlg::StringToByte(CString &strChar)
 {
 	BYTE  bRet = 0;
-	//int iLen = strChar.GetLength();
 	ASSERT(strChar.GetLength() >= BYTE_STRING_LEN);
 	strChar.MakeUpper();
 
@@ -932,5 +1018,10 @@ void CBusHoundCompareDlg::OnClose()
 		m_lpucDataArea = NULL;
 	}
 
+	if (NULL != m_DataAreaMap)
+	{
+		delete m_DataAreaMap;
+		m_DataAreaMap = NULL;
+	}
 	CDialogEx::OnClose();
 }

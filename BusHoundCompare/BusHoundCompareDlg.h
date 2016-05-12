@@ -6,7 +6,8 @@
 #include "afxwin.h"
 
 #include <queue>
-#include <map>
+#include <vector>
+//#include <map>
 using namespace std;
 
 #define BLOCK_UNIT_SIZE			(0x400)			// 块单元个数
@@ -15,6 +16,7 @@ using namespace std;
 #define CBW_MAX_LEN             (0x1E)			// Command Block Wrapper 长度
 #define SYSTEM_AREA_SIZE        (0x2000000)		// 32M 供系统区使用
 #define DATA_AREA_SIZE			(0x1000000)		// 16M 供数据区使用
+#define DATA_AREA_MAP_SIZE      (DATA_AREA_SIZE/SECTOR)		// 数据区映射文件长度 
 #define MAX_TRANS_SEC_NUM       (0x80)			// 单次最大传输扇区个数
 #define SECTOR                  (0x200)         // 扇区大小
 #define MAX_DMA_NUM				(0x10)			// DMA个数
@@ -22,16 +24,26 @@ using namespace std;
 
 #define CMD_PHASE_OFS_LEN		(0x12)			// 相位差所占长度
 
+#define CMD_BLK_CMDIDX			(0)				// 命令块中命令位置
+#define CMD_BLK_ADDRIDX			(2)				// 命令块中地址开始位置
+#define CMD_BLK_LENIDX			(7)				// 命令块中传输长度开始位置
+
 UINT  AFX_CDECL BusHoundDecodeThread(LPVOID lpParam);
 UINT  AFX_CDECL BusHoundCompareThread(LPVOID lpParam);
 
 struct COMMAND_INFO
 {
-	UINT dmaIdx;
+	DWORD dmaIdx;
 	WORD sectorCnt;
 	DWORD addr;
 	BOOL direction;		// 0:IN/1:OUT
 	TCHAR cmdPhaseOfs[CMD_PHASE_OFS_LEN+1];
+};
+
+struct DATA_AREA_MAP
+{
+	WORD secIdx;
+	DWORD logAddr;
 };
 
 // CBusHoundCompareDlg 对话框
@@ -70,10 +82,10 @@ public:
 	CWinThread	*m_lpDecodeThread;
 	CWinThread	*m_lpCompareThread;
 
-	UINT m_nCmdPhaseOfsPoint;
-	UINT m_nPhaseStartPoint;
-	UINT m_nDataStartPoint;
-	UINT m_nDataLen;
+	UINT m_nCmdPhaseOfsPoint;		// 命令状态偏移位置
+	UINT m_nPhaseStartPoint;		// 状态开始位置
+	UINT m_nDataStartPoint;			// 数据开始位置
+	UINT m_nDataLen;				// 数据在原始文件中所占长度
 
 public:
 	DWORD	DecodeThread();
@@ -102,7 +114,14 @@ private:
 	BYTE *m_lpucDataArea;							// 16M 供数据区使用
 	UINT m_DataFlag;
 
-	map<DWORD, WORD> m_DataAreaMap;
+	UINT m_PhaseType;							// 0:其他状态/1:命令状态/2:数据状态
+	UINT m_DmaIdx;								// DMA 索引位置
+	UINT m_DataIdx;								// 数据索引位置
+	UINT m_CBWIdx;								// 命令索引位置
+
+	BOOL m_bStartWriteFlag;						// 是否已写入标记
+
+	vector<DWORD> *m_DataAreaMap;
 	queue<COMMAND_INFO> m_CommandInfo;
 private:
 	CString GetCurrentPath();
@@ -137,9 +156,16 @@ private:
 	BOOL AddDisplay(LPCTSTR str);
 
 	CString  FindLine(LPBYTE  pByte, UINT & uiIndex, UINT uiLen);
-	BYTE  StringToByte(CString strChar);
+	BYTE  StringToByte(CString &strChar);
 	DWORD ReverseDWORD(DWORD InData);
 	WORD ReverseWORD(WORD InData);
+
+	BOOL CommandDecodeFlow(CString &strLine);
+	BOOL DataDecodeFlow(CString &strLine);
+	BOOL ExistedWriteFlag();
+	BOOL PseudoWriteData(DWORD addr, WORD secCnt, DWORD dmaIdx);
+	BOOL PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
+	void ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs);
 
 
 
