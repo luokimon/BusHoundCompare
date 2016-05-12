@@ -6,17 +6,21 @@
 #include "afxwin.h"
 
 #include <queue>
+#include <map>
 using namespace std;
 
 #define BLOCK_UNIT_SIZE			(0x400)			// 块单元个数
 #define FAT_MAX_UINT_SIZE		(0x400)			// FAT表预计单元个数
 
 #define CBW_MAX_LEN             (0x1E)			// Command Block Wrapper 长度
-#define SYSTEM_AREA_SIZE        (0x4000000)		// 64M 供系统区使用
+#define SYSTEM_AREA_SIZE        (0x2000000)		// 32M 供系统区使用
+#define DATA_AREA_SIZE			(0x1000000)		// 16M 供数据区使用
 #define MAX_TRANS_SEC_NUM       (0x80)			// 单次最大传输扇区个数
 #define SECTOR                  (0x200)         // 扇区大小
 #define MAX_DMA_NUM				(0x10)			// DMA个数
 #define BYTE_STRING_LEN         (2)             // 每个字符表示 单字节 所占长度
+
+#define CMD_PHASE_OFS_LEN		(0x12)			// 相位差所占长度
 
 UINT  AFX_CDECL BusHoundDecodeThread(LPVOID lpParam);
 UINT  AFX_CDECL BusHoundCompareThread(LPVOID lpParam);
@@ -27,6 +31,7 @@ struct COMMAND_INFO
 	WORD sectorCnt;
 	DWORD addr;
 	BOOL direction;		// 0:IN/1:OUT
+	TCHAR cmdPhaseOfs[CMD_PHASE_OFS_LEN+1];
 };
 
 // CBusHoundCompareDlg 对话框
@@ -65,6 +70,7 @@ public:
 	CWinThread	*m_lpDecodeThread;
 	CWinThread	*m_lpCompareThread;
 
+	UINT m_nCmdPhaseOfsPoint;
 	UINT m_nPhaseStartPoint;
 	UINT m_nDataStartPoint;
 	UINT m_nDataLen;
@@ -92,9 +98,11 @@ private:
 
 	BYTE m_ucCmdData[CBW_MAX_LEN];
 	BYTE *m_lpucSecotrData[MAX_DMA_NUM];
-	BYTE *m_lpucSysArea;							// 设置 64M 供 FAT 区使用
+	BYTE *m_lpucSysArea;							// 32M 供系统区使用
+	BYTE *m_lpucDataArea;							// 16M 供数据区使用
 	UINT m_DataFlag;
 
+	map<DWORD, WORD> m_DataAreaMap;
 	queue<COMMAND_INFO> m_CommandInfo;
 private:
 	CString GetCurrentPath();

@@ -7,3 +7,4 @@ ipch/
 *.db
 *.aps
 *.filters
+*.user

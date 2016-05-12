@@ -89,6 +89,7 @@ BOOL CBusHoundCompareDlg::OnInitDialog()
 	}
 
 	m_lpucSysArea = new BYTE[SYSTEM_AREA_SIZE];
+	m_lpucDataArea = new BYTE[DATA_AREA_SIZE];
 
 	return TRUE;  // 除非将焦点设置到控件，否则返回 TRUE
 }
@@ -547,6 +548,7 @@ BOOL CBusHoundCompareDlg::GetDataOffset(__int64 &fileOffset, UINT &blkOffset)
 			{
 				m_nDataStartPoint = 0;
 				m_nPhaseStartPoint = 0;
+				m_nCmdPhaseOfsPoint = 0;
 			}
 
 		}
@@ -560,12 +562,17 @@ BOOL CBusHoundCompareDlg::GetDataOffset(__int64 &fileOffset, UINT &blkOffset)
 
 				// 获取状态码偏移位置
 				int phaseOffset = strLine.Find(_T("Phase"));
+				int cmdPhaseOfs = strLine.Find(_T("Cmd.Phase.Ofs(rep)"));
 				if (-1 != phaseOffset)
+				{
+					m_nCmdPhaseOfsPoint = cmdPhaseOfs;
 					m_nPhaseStartPoint = phaseOffset;
+				}
 				else
 				{
 					m_nDataStartPoint = 0;
 					m_nPhaseStartPoint = 0;
+					m_nCmdPhaseOfsPoint = 0;
 				}
 			}
 
@@ -607,15 +614,26 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 	UINT cbwIdx = 0;
 	UINT phaseType = 0;  // 0:其他状态/1:命令状态/2:数据状态
 	COMMAND_INFO cmdInfo;
+	BOOL bStartWriteFlag = FALSE;
+	BOOL bOutOfRange = FALSE;
+
+	m_DataAreaMap.clear();
 
 	while (GetRunFlag())
 	{
-		SetCompareStartFlag(TRUE);
+		//SetCompareStartFlag(TRUE); 暂时关闭
 
 		// 获取命令及数据
 		while (uiBlkOffset < m_dwBlkSize)
 		{
-			strLine = FindLine(m_lpSrcMapAddress, uiBlkOffset, m_dwBlkSize);
+			// 判断越界条件
+			if ((qwFileOffset + uiBlkOffset) >= m_nSrcFileSize)
+			{
+				bOutOfRange = TRUE;
+				break;
+			}
+
+			strLine = FindLine(m_lpSrcMapAddress, uiBlkOffset, m_dwBlkSize);       // 5ms
 
 			int cmdIdx = strLine.Find(_T("CMD"), m_nPhaseStartPoint);
 			int inIdx = strLine.Find(_T("IN"), m_nPhaseStartPoint);
@@ -624,11 +642,16 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 			if ((cmdIdx == m_nPhaseStartPoint) || ((spaceIdx == m_nPhaseStartPoint) && (1 == phaseType)))
 			{
+				// 处理两条命令靠近的情况
+				if ((cmdIdx == m_nPhaseStartPoint))
+					cbwIdx = 0;
+
 				dataIdx = 0;
 				phaseType = 1;
 				// 获取命令
 				strData = strLine.Mid(m_nDataStartPoint, m_nDataLen);
 				strData.TrimRight();
+					
 
 				while (strData.GetLength())
 				{
@@ -640,24 +663,58 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 					continue;
 				else
 				{
+					CString strPhaseOfs = strLine.Mid(m_nCmdPhaseOfsPoint, CMD_PHASE_OFS_LEN);
+					strPhaseOfs.Trim();
+
+					if (-1 != strPhaseOfs.Find(_T("2270.1.0")))
+					{
+						strPhaseOfs.Trim();
+					}
+
+					_tcscpy_s(cmdInfo.cmdPhaseOfs, strPhaseOfs);
+					//memcpy(cmdInfo.cmdPhaseOfs, strPhaseOfs, strPhaseOfs.GetLength() + 1);
 					cmdInfo.addr = ReverseDWORD(*((DWORD *)&m_ucCmdData[2]));
 					cmdInfo.sectorCnt = ReverseWORD(*((WORD *)&m_ucCmdData[7]));
 					cmdInfo.dmaIdx = dmaIdx++;
-					cmdInfo.direction = (m_ucCmdData[0] == 0x28);
+					cmdInfo.direction = (m_ucCmdData[0] == 0x2a);
 					m_CommandInfo.push(cmdInfo);
+
+					if(cmdInfo.direction)
+						bStartWriteFlag = TRUE;
+					//ASSERT(m_CommandInfo.size() < 2);
 					continue;
 				}
 			}
-			else if (!m_CommandInfo.empty())
+			else if (((inIdx == m_nPhaseStartPoint) || (outIdx == m_nPhaseStartPoint)) || ((spaceIdx == m_nPhaseStartPoint) && (2 == phaseType)))
 			{
+				// 处理两条数据靠近的情况
+				if((inIdx == m_nPhaseStartPoint) || (outIdx == m_nPhaseStartPoint))
+					dataIdx = 0;
+
+				phaseType = 2;
 				cbwIdx = 0;
 
-				// 获取数据
-				if (((inIdx == m_nPhaseStartPoint) || (outIdx == m_nPhaseStartPoint)) || ((spaceIdx == m_nPhaseStartPoint) && (2 == phaseType)))
+				// 未开始写之前不比较数据
+				if (!bStartWriteFlag)
 				{
-					phaseType = 2;
-					strData = strLine.Mid(m_nDataStartPoint, m_nDataLen);
+					if (!m_CommandInfo.empty())
+					{
+						m_CommandInfo.pop();
+						dmaIdx = 0;
+					}
+					continue;
+				}
+					
+						
+					
+
+				// 获取数据
+				if (!m_CommandInfo.empty())
+				{
+					
+					strData = strLine.Mid(m_nDataStartPoint, m_nDataLen);    // 6ms
 					strData.TrimRight();
+
 
 					while (strData.GetLength())
 					{
@@ -666,24 +723,57 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 						strData = strData.Mid(BYTE_STRING_LEN);
 					}
 
-					ASSERT(dataIdx <= m_CommandInfo.front().sectorCnt*SECTOR);
+					//ASSERT(dataIdx <= (UINT)m_CommandInfo.front().sectorCnt*SECTOR);
 					if (dataIdx == m_CommandInfo.front().sectorCnt*SECTOR)
 					{
 						if (m_CommandInfo.front().direction)
 						{
-
+							if (m_CommandInfo.front().addr < (SYSTEM_AREA_SIZE / SECTOR))
+							{
+								memcpy(&m_lpucSysArea[m_CommandInfo.front().addr*SECTOR], m_lpucSecotrData[m_CommandInfo.front().dmaIdx], m_CommandInfo.front().sectorCnt*SECTOR);
+							}
+							else
+							{
+								memcpy(&m_lpucDataArea[m_DataAreaMap.size()*SECTOR], m_lpucSecotrData[m_CommandInfo.front().dmaIdx], m_CommandInfo.front().sectorCnt*SECTOR);
+								for (int i = 0; i < m_CommandInfo.front().sectorCnt; i++)
+								{
+									m_DataAreaMap.insert(make_pair(m_CommandInfo.front().addr, m_DataAreaMap.size()));
+								}
+								
+							}
+							dmaIdx--;
+							m_CommandInfo.pop();
 						}
 						else
 						{
-							memcpy(&m_lpucSysArea[m_CommandInfo.front().addr*SECTOR], m_lpucSecotrData[m_CommandInfo.front().dmaIdx], m_CommandInfo.front().sectorCnt*SECTOR);
+							if (bStartWriteFlag)
+							{
+								if (m_CommandInfo.front().addr < (SYSTEM_AREA_SIZE / SECTOR))
+								{
+									if (0 != memcmp(&m_lpucSysArea[m_CommandInfo.front().addr*SECTOR], m_lpucSecotrData[m_CommandInfo.front().dmaIdx], m_CommandInfo.front().sectorCnt*SECTOR))
+									{
+										CString strShow;
+										strShow.Format(_T("Error Address: 0x%8X, Error Phase Offset: %s"), m_CommandInfo.front().addr, m_CommandInfo.front().cmdPhaseOfs);
+										AddDisplay(strShow);
+									}
+								}
+								else
+								{
+									for (int i = 0; i < m_CommandInfo.front().sectorCnt; i++)
+									{
+										if (0 != memcmp(&m_lpucDataArea[m_DataAreaMap[m_CommandInfo.front().addr+i]*SECTOR], &m_lpucSecotrData[m_CommandInfo.front().dmaIdx][i*SECTOR], SECTOR))
+										{
+											CString strShow;
+											strShow.Format(_T("Error Address: 0x%8X, Error Phase Offset: %s"), m_CommandInfo.front().addr, m_CommandInfo.front().cmdPhaseOfs);
+											AddDisplay(strShow);
+										}
+									}
+								}
+							}
+							dmaIdx--;
 							m_CommandInfo.pop();
 						}
 					}
-				}
-				else
-				{
-					dataIdx = 0;
-					phaseType = 0;
 				}
 			}
 			else
@@ -692,10 +782,16 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 				cbwIdx = 0;
 				phaseType = 0;
 			}
-
-
 		}
+		// 判断越界则跳出
+		if (bOutOfRange)
+			break;
+
 		qwFileOffset += m_dwBlkSize;
+
+		
+		if (qwFileOffset > m_nSrcFileSize)
+			break;
 
 		// 创建前会销毁原来的映射
 		if (!CreateMapAddr(m_hSrcFileMap, qwFileOffset, m_dwBlkSize, m_lpSrcMapAddress))
@@ -705,6 +801,7 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 	}
 	DistroyMapAddr(m_lpSrcMapAddress);
+	//SetRunFlag(FALSE);
 	SetEndFlag(TRUE);
 	AddDisplay(_T("解析数据结束!"));
 	return TRUE;
@@ -736,6 +833,12 @@ CString  CBusHoundCompareDlg::FindLine(LPBYTE  pByte, UINT & uiIndex, UINT uiLen
 	char       szChar[2] = "0";
 	char  & ch = szChar[0];
 
+	// 处理上一次残留无结尾符字符串
+	if (!m_strResidualData.IsEmpty())
+	{
+		strRet = m_strResidualData;
+		m_strResidualData.Empty();
+	}
 	for (UINT i = uiIndex; i < uiLen; i++)
 	{
 		ch = pByte[i];
@@ -821,6 +924,12 @@ void CBusHoundCompareDlg::OnClose()
 	{
 		delete[] m_lpucSysArea;
 		m_lpucSysArea = NULL;
+	}
+
+	if (NULL != m_lpucDataArea)
+	{
+		delete[] m_lpucDataArea;
+		m_lpucDataArea = NULL;
 	}
 
 	CDialogEx::OnClose();
