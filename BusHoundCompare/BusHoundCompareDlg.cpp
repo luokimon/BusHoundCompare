@@ -52,9 +52,7 @@ void CBusHoundCompareDlg::DoDataExchange(CDataExchange* pDX)
 	CDialogEx::DoDataExchange(pDX);
 	DDX_Control(pDX, IDC_EDIT_DATAPATH, m_editDataPath);
 	DDX_Control(pDX, IDC_LIST_SHOWSTATUS, m_listShowStatus);
-	DDX_Control(pDX, IDC_EDIT_GRANULARITY, m_editGranularity);
-	DDX_Control(pDX, IDC_EDIT_BLKUNITSIZE, m_editBlkUnitSize);
-	DDX_Control(pDX, IDC_EDIT_FATUNITSIZE, m_editFATUnitSize);
+	DDX_Control(pDX, IDC_PROGRESS_DECODE, m_progDecode);
 }
 
 BEGIN_MESSAGE_MAP(CBusHoundCompareDlg, CDialogEx)
@@ -65,6 +63,7 @@ BEGIN_MESSAGE_MAP(CBusHoundCompareDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_SELECTPATH, &CBusHoundCompareDlg::OnBnClickedBtnSelectpath)
 	ON_BN_CLICKED(IDC_BTN_COMPARE, &CBusHoundCompareDlg::OnBnClickedBtnCompare)
 	ON_WM_CLOSE()
+//	ON_WM_CREATE()
 END_MESSAGE_MAP()
 
 
@@ -81,7 +80,8 @@ BOOL CBusHoundCompareDlg::OnInitDialog()
 
 	// TODO: 在此添加额外的初始化代码	
 	InitialParam();
-	DisplayWindowInfo();
+	m_progDecode.SetRange(0, 1000);
+	m_progDecode.SetStep(1);
 
 	for (int i = 0; i < MAX_DMA_NUM; i++)
 	{
@@ -101,7 +101,8 @@ BOOL CBusHoundCompareDlg::OnInitDialog()
 void CBusHoundCompareDlg::InitialParam()
 {
 	m_bRun = FALSE;
-	m_bEnd = FALSE;
+	m_bEnd = TRUE;
+	m_bStop = TRUE;
 	m_bCompareStart = FALSE;
 	m_bStartWriteFlag = FALSE;
 
@@ -109,22 +110,6 @@ void CBusHoundCompareDlg::InitialParam()
 	m_nDataLen = 0;
 	m_strDataPath.Empty();
 	m_Granularity = GetAllocationGranularity();
-}
-
-// 函数名称: DisplayWindowInfo
-// 函数功能: 显示主界面信息
-void CBusHoundCompareDlg::DisplayWindowInfo()
-{
-	CString str;
-
-	str.Format(_T("0x%X"), m_Granularity);
-	m_editGranularity.SetWindowText(str);
-
-	str.Format(_T("0x%X"), BLOCK_UNIT_SIZE);
-	m_editBlkUnitSize.SetWindowText(str);
-
-	str.Format(_T("0x%X"), FAT_MAX_UINT_SIZE);
-	m_editFATUnitSize.SetWindowText(str);
 }
 
 // 如果向对话框添加最小化按钮，则需要下面的代码
@@ -223,6 +208,7 @@ VOID CBusHoundCompareDlg::CreateWorkThread()
 {
 	SetRunFlag(TRUE);
 	SetEndFlag(FALSE);
+	SetStopFlag(FALSE);
 
 	// 开启解析数据文件线程
 	CreateDecodeThread();
@@ -434,6 +420,32 @@ BOOL CBusHoundCompareDlg::SetEndFlag(BOOL  endFlag)
 	return FALSE;
 }
 
+BOOL CBusHoundCompareDlg::GetStopFlag()
+{
+	BOOL  bRet = FALSE;
+
+	if (m_Mutex.Lock())
+	{
+		bRet = m_bStop;
+		m_Mutex.Unlock();
+	}
+
+	return bRet;
+
+}
+
+BOOL CBusHoundCompareDlg::SetStopFlag(BOOL  stopFlag)
+{
+	if (m_Mutex.Lock())
+	{
+		m_bStop = stopFlag;
+		m_Mutex.Unlock();
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
 BOOL CBusHoundCompareDlg::GetCompareStartFlag()
 {
 	BOOL  bRet = FALSE;
@@ -477,6 +489,34 @@ BOOL CBusHoundCompareDlg::SetDataFlag(UINT  dataFlag)
 	if (m_Mutex.Lock())
 	{
 		m_DataFlag &= dataFlag;
+		m_Mutex.Unlock();
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+BOOL CBusHoundCompareDlg::GetDMAIdxMask(DWORD dmaIdx)
+{
+	BOOL  bRet = TRUE;		// 默认被占用
+
+	if (m_Mutex.Lock())
+	{
+		bRet = m_DMAMask&((DWORD)1<< dmaIdx);
+		m_Mutex.Unlock();
+	}
+
+	return bRet;
+}
+
+BOOL CBusHoundCompareDlg::SetDMAIdxMask(DWORD dmaIdx, BOOL maskFlag)
+{
+	if (m_Mutex.Lock())
+	{
+		if(maskFlag)
+			m_DMAMask |= ((DWORD)1 << dmaIdx);
+		else
+			m_DMAMask &= ~((DWORD)1 << dmaIdx);
 		m_Mutex.Unlock();
 		return TRUE;
 	}
@@ -559,14 +599,14 @@ BOOL CBusHoundCompareDlg::GetDataOffset(__int64 &fileOffset, UINT &blkOffset)
 		{
 			int offset = strLine.Find(_T(" Data "));
 
-			if (-1 != offset)
+			if (EOF != offset)
 			{
 				m_nDataStartPoint = offset + 1;
 
 				// 获取状态码偏移位置
 				int phaseOffset = strLine.Find(_T("Phase"));
 				int cmdPhaseOfs = strLine.Find(_T("Cmd.Phase.Ofs(rep)"));
-				if (-1 != phaseOffset)
+				if (EOF != phaseOffset)
 				{
 					m_nCmdPhaseOfsPoint = cmdPhaseOfs;
 					m_nPhaseStartPoint = phaseOffset;
@@ -620,6 +660,9 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 	m_PhaseType = 0;
 	m_DmaIdx = 0;
 
+	__int64 stepSize = m_nSrcFileSize / 1000;
+	WORD progPos = 0;
+
 	while (GetRunFlag())
 	{
 		//SetCompareStartFlag(TRUE); 暂时关闭
@@ -627,6 +670,17 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 		// 获取命令及数据
 		while (uiBlkOffset < m_dwBlkSize)
 		{
+			if (((qwFileOffset + uiBlkOffset) / stepSize) > progPos)
+			{
+				m_progDecode.StepIt();
+				progPos++;
+			}
+			if (GetStopFlag())
+			{
+				SetRunFlag(FALSE);
+				break;
+			}
+
 			// 判断越界条件
 			if ((qwFileOffset + uiBlkOffset) >= m_nSrcFileSize)
 			{
@@ -634,7 +688,13 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 				break;
 			}
 
-			strLine = FindLine(m_lpSrcMapAddress, uiBlkOffset, m_dwBlkSize);       // 5ms
+			strLine = FindLine(m_lpSrcMapAddress, uiBlkOffset, m_dwBlkSize);
+
+			if(EOF != strLine.Find(_T("  35              CMD    28 00 00 00  38 78 00 00  08 00                     READ               37us     14084.1.0        2016/05/10  13:47:28.863  classpnp      ")))
+				strLine.TrimRight();
+
+			if (!m_strResidualData.IsEmpty())
+				continue;
 
 			int cmdIdx = strLine.Find(_T("CMD"), m_nPhaseStartPoint);
 			int inIdx = strLine.Find(_T("IN"), m_nPhaseStartPoint);
@@ -683,9 +743,13 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 	}
 	DistroyMapAddr(m_lpSrcMapAddress);
-	//SetRunFlag(FALSE);
+
+	if (!GetStopFlag())
+	{
+		m_progDecode.SetPos(1000);
+		AddDisplay(_T("解析数据结束!"));
+	}	
 	SetEndFlag(TRUE);
-	AddDisplay(_T("解析数据结束!"));
 	return TRUE;
 }
 
@@ -722,17 +786,31 @@ BOOL CBusHoundCompareDlg::CommandDecodeFlow(CString &strLine)
 		// 获取命令状态偏移
 		CString strCmdPhaseOfs = strLine.Mid(m_nCmdPhaseOfsPoint, CMD_PHASE_OFS_LEN);
 		
+		
+		UINT nextIdx = (m_DmaIdx++) % MAX_DMA_NUM;
+		if (!GetDMAIdxMask(nextIdx))
+		{
+			cmdInfo.dmaIdx = nextIdx;
+			SetDMAIdxMask(cmdInfo.dmaIdx, TRUE);
+		}
+		else
+			SetRunFlag(FALSE);		// 结束线程
+
 		// 获取命令字符串
-		cmdInfo.dmaIdx = m_DmaIdx++;
 		cmdInfo.addr = ReverseDWORD(*((DWORD *)&m_ucCmdData[CMD_BLK_ADDRIDX]));
 		cmdInfo.sectorCnt = ReverseWORD(*((WORD *)&m_ucCmdData[CMD_BLK_LENIDX]));
 		cmdInfo.direction = (m_ucCmdData[CMD_BLK_CMDIDX] == 0x2a);
 		_tcscpy_s(cmdInfo.cmdPhaseOfs, strCmdPhaseOfs);
-		m_CommandInfo.push(cmdInfo);
 
 		// 设置写入标记
 		if (cmdInfo.direction)
 			m_bStartWriteFlag = TRUE;
+		if (!m_bStartWriteFlag)
+		{
+			SetDMAIdxMask(cmdInfo.dmaIdx, FALSE);			
+		}
+
+		m_CommandInfo.push(cmdInfo);
 	}
 
 	return TRUE;
@@ -749,7 +827,9 @@ BOOL CBusHoundCompareDlg::DataDecodeFlow(CString &strLine)
 	m_PhaseType = 2;		// 状态标记为数据
 		   
 	if (!ExistedWriteFlag())
+	{
 		return FALSE;
+	}
 	
 
 	DWORD addr = m_CommandInfo.front().addr;
@@ -806,8 +886,7 @@ BOOL CBusHoundCompareDlg::ExistedWriteFlag()
 		{
 			m_CommandInfo.pop();
 		}
-		m_DmaIdx = 0;				// DMA 索引清空
-
+		//m_DmaIdx = 0;				// DMA 索引清空
 		return FALSE;
 	}
 	return TRUE;
@@ -844,7 +923,8 @@ BOOL CBusHoundCompareDlg::PseudoWriteData(DWORD addr, WORD secCnt, DWORD dmaIdx 
 			memcpy(&m_lpucDataArea[secIdx*SECTOR], &m_lpucSecotrData[dmaIdx][i*SECTOR], SECTOR);
 		}
 	}
-	m_DmaIdx--;
+	//m_DmaIdx--;	
+	SetDMAIdxMask(dmaIdx, FALSE);
 	m_CommandInfo.pop();
 
 	return TRUE;
@@ -881,7 +961,8 @@ BOOL CBusHoundCompareDlg::PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, 
 		}
 	}
 
-	m_DmaIdx--;
+	//m_DmaIdx--;
+	SetDMAIdxMask(dmaIdx, FALSE);
 	m_CommandInfo.pop();
 
 	return TRUE;
@@ -890,7 +971,7 @@ BOOL CBusHoundCompareDlg::PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, 
 void CBusHoundCompareDlg::ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs)
 {
 	CString strShow;
-	strShow.Format(_T("Error Address: 0x%8X, Error Phase Offset: %s"), addr, cmdPhaseOfs);
+	strShow.Format(_T("Error Address: 0x%-10X, Error Phase Offset: %-31s"), addr, cmdPhaseOfs);
 	AddDisplay(strShow);
 }
 
@@ -997,6 +1078,16 @@ WORD CBusHoundCompareDlg::ReverseWORD(WORD InData)
 void CBusHoundCompareDlg::OnClose()
 {
 	// TODO: 在此添加消息处理程序代码和/或调用默认值
+
+	// 结束线程
+	if (SetStopFlag(TRUE))
+	{
+		while (!GetEndFlag())
+		{
+			Sleep(10);
+		}
+	}
+
 	for (int i = 0; i < MAX_DMA_NUM; i++)
 	{
 		if (NULL != m_lpucSecotrData[i])

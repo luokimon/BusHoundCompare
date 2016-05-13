@@ -7,6 +7,7 @@
 
 #include <queue>
 #include <vector>
+#include "afxcmn.h"
 //#include <map>
 using namespace std;
 
@@ -38,12 +39,6 @@ struct COMMAND_INFO
 	DWORD addr;
 	BOOL direction;		// 0:IN/1:OUT
 	TCHAR cmdPhaseOfs[CMD_PHASE_OFS_LEN+1];
-};
-
-struct DATA_AREA_MAP
-{
-	WORD secIdx;
-	DWORD logAddr;
 };
 
 // CBusHoundCompareDlg 对话框
@@ -99,8 +94,9 @@ private:
 	DWORD m_dwBlkSize;
 	DWORD m_Granularity;
 	
-	BOOL m_bRun;
-	BOOL m_bEnd;
+	BOOL m_bRun;		// 线程启动标记
+	BOOL m_bEnd;		// 线程结束标记
+	BOOL m_bStop;		// 线程停止标记
 	BOOL m_bCompareStart;	
 
 	__int64 m_nSrcFileSize;	
@@ -110,6 +106,7 @@ private:
 
 	BYTE m_ucCmdData[CBW_MAX_LEN];
 	BYTE *m_lpucSecotrData[MAX_DMA_NUM];
+	DWORD m_DMAMask;								// DMA 掩码
 	BYTE *m_lpucSysArea;							// 32M 供系统区使用
 	BYTE *m_lpucDataArea;							// 16M 供数据区使用
 	UINT m_DataFlag;
@@ -120,6 +117,7 @@ private:
 	UINT m_CBWIdx;								// 命令索引位置
 
 	BOOL m_bStartWriteFlag;						// 是否已写入标记
+
 
 	vector<DWORD> *m_DataAreaMap;
 	queue<COMMAND_INFO> m_CommandInfo;
@@ -132,10 +130,14 @@ private:
 	BOOL SetRunFlag(BOOL  runFlag);
 	BOOL GetEndFlag();
 	BOOL SetEndFlag(BOOL  endFlag);
+	BOOL GetStopFlag();
+	BOOL SetStopFlag(BOOL  stopFlag);
 	BOOL GetCompareStartFlag();
 	BOOL SetCompareStartFlag(BOOL  startFlag);
 	UINT GetDataFlag();
 	BOOL SetDataFlag(UINT  dataFlag);
+	BOOL GetDMAIdxMask(DWORD dmaIdx);
+	BOOL SetDMAIdxMask(DWORD dmaIdx, BOOL maskFlag);
 
 	HANDLE CreateUserFileMapping(CString strPath, __int64 &fileSize);
 
@@ -147,7 +149,6 @@ private:
 	void DestroyCompareThread();
 	VOID CreateWorkThread();
 	DWORD GetAllocationGranularity();
-	void DisplayWindowInfo();
 	void InitialParam();
 
 	BOOL CreateMapAddr(HANDLE hFileMap, __int64 &fileOffset, DWORD blkSize, LPBYTE &mapAddr);
@@ -171,8 +172,6 @@ private:
 
 public:
 	CListBox m_listShowStatus;
-	CEdit m_editGranularity;
-	CEdit m_editBlkUnitSize;
-	CEdit m_editFATUnitSize;
 	afx_msg void OnClose();
+	CProgressCtrl m_progDecode;
 };
