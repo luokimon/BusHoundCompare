@@ -63,8 +63,8 @@ BEGIN_MESSAGE_MAP(CBusHoundCompareDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_SELECTPATH, &CBusHoundCompareDlg::OnBnClickedBtnSelectpath)
 	ON_BN_CLICKED(IDC_BTN_COMPARE, &CBusHoundCompareDlg::OnBnClickedBtnCompare)
 	ON_WM_CLOSE()
+	ON_WM_DROPFILES()
 //	ON_WM_CREATE()
-ON_WM_DROPFILES()
 END_MESSAGE_MAP()
 
 
@@ -83,6 +83,10 @@ BOOL CBusHoundCompareDlg::OnInitDialog()
 	InitialParam();
 	m_progDecode.SetRange(0, 1000);
 	m_progDecode.SetStep(1);
+
+	// 利用未公开 API 放行文件拖拽消息
+	ChangeWindowMessageFilter(WM_DROPFILES, MSGFLT_ADD);
+	ChangeWindowMessageFilter(0x0049, MSGFLT_ADD);	// 0x0049 - WM_COPYGLOBALDATA
 
 	for (int i = 0; i < MAX_DMA_NUM; i++)
 	{
@@ -1129,11 +1133,28 @@ void CBusHoundCompareDlg::OnClose()
 void CBusHoundCompareDlg::OnDropFiles(HDROP hDropInfo)
 {
 	// TODO: 在此添加消息处理程序代码和/或调用默认值
-	DragQueryFile(hDropInfo, NULL, m_strDataPath.GetBufferSetLength(MAX_PATH), MAX_PATH);
-	m_editDataPath.SetWindowText(m_strDataPath);
-	//m_editDataPath.UpdateWindow();
+
+	if (1 == DragQueryFile(hDropInfo, INFINITE, NULL, NULL))
+	{
+		DragQueryFile(hDropInfo, NULL, m_strDataPath.GetBufferSetLength(MAX_PATH), MAX_PATH);
+		m_editDataPath.SetWindowText(m_strDataPath);
+		//m_editDataPath.UpdateWindow();
+
+	}
+	else
+	{
+		MessageBox(_T("请单独选择需要解析的文件!"), NULL, MB_ICONERROR| MB_OK);
+	}
 	DragFinish(hDropInfo);
 
 
 	CDialogEx::OnDropFiles(hDropInfo);
 }
+
+//int CBusHoundCompareDlg::OnCreate(LPCREATESTRUCT lpCreateStruct)
+//{
+//	// TODO: 在此添加消息处理程序代码和/或调用默认值
+//	DragAcceptFiles(TRUE);
+//
+//	return CDialogEx::OnCreate(lpCreateStruct);
+//}

@@ -74,6 +74,8 @@ public:
 	afx_msg void OnBnClickedBtnCompare();
 	afx_msg void OnClose();
 	afx_msg void OnDropFiles(HDROP hDropInfo);
+//	afx_msg int OnCreate(LPCREATESTRUCT);
+
 
 public:
 	CWinThread	*m_lpDecodeThread;
