@@ -690,8 +690,6 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 			strLine = FindLine(m_lpSrcMapAddress, uiBlkOffset, m_dwBlkSize);
 
-			if(EOF != strLine.Find(_T("  35              CMD    28 00 00 00  38 78 00 00  08 00                     READ               37us     14084.1.0        2016/05/10  13:47:28.863  classpnp      ")))
-				strLine.TrimRight();
 
 			if (!m_strResidualData.IsEmpty())
 				continue;
@@ -733,11 +731,19 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 
 		if (qwFileOffset > m_nSrcFileSize)
+		{
+			SetRunFlag(FALSE);
 			break;
+		}
+
+		if ((m_nSrcFileSize - qwFileOffset) < m_dwBlkSize)
+		{
+			m_dwBlkSize = (DWORD)(m_nSrcFileSize - qwFileOffset);
+		}
 
 		// 创建前会销毁原来的映射
 		if (!CreateMapAddr(m_hSrcFileMap, qwFileOffset, m_dwBlkSize, m_lpSrcMapAddress))
-			return FALSE;
+			break;
 
 		uiBlkOffset = 0;
 
