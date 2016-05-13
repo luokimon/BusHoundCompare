@@ -64,6 +64,7 @@ BEGIN_MESSAGE_MAP(CBusHoundCompareDlg, CDialogEx)
 	ON_BN_CLICKED(IDC_BTN_COMPARE, &CBusHoundCompareDlg::OnBnClickedBtnCompare)
 	ON_WM_CLOSE()
 //	ON_WM_CREATE()
+ON_WM_DROPFILES()
 END_MESSAGE_MAP()
 
 
@@ -200,7 +201,8 @@ void CBusHoundCompareDlg::OnBnClickedBtnCompare()
 	else
 	{
 		// 创建工作线程
-		CreateWorkThread();
+		if(!GetRunFlag())
+			CreateWorkThread();
 	}
 }
 
@@ -736,6 +738,7 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 			break;
 		}
 
+		// 文件结尾长度不能越界
 		if ((m_nSrcFileSize - qwFileOffset) < m_dwBlkSize)
 		{
 			m_dwBlkSize = (DWORD)(m_nSrcFileSize - qwFileOffset);
@@ -1121,4 +1124,16 @@ void CBusHoundCompareDlg::OnClose()
 		m_DataAreaMap = NULL;
 	}
 	CDialogEx::OnClose();
+}
+
+void CBusHoundCompareDlg::OnDropFiles(HDROP hDropInfo)
+{
+	// TODO: 在此添加消息处理程序代码和/或调用默认值
+	DragQueryFile(hDropInfo, NULL, m_strDataPath.GetBufferSetLength(MAX_PATH), MAX_PATH);
+	m_editDataPath.SetWindowText(m_strDataPath);
+	//m_editDataPath.UpdateWindow();
+	DragFinish(hDropInfo);
+
+
+	CDialogEx::OnDropFiles(hDropInfo);
 }

@@ -72,6 +72,8 @@ public:
 	CEdit m_editDataPath;
 	afx_msg void OnBnClickedBtnSelectpath();
 	afx_msg void OnBnClickedBtnCompare();
+	afx_msg void OnClose();
+	afx_msg void OnDropFiles(HDROP hDropInfo);
 
 public:
 	CWinThread	*m_lpDecodeThread;
@@ -171,7 +173,6 @@ private:
 
 
 public:
-	CListBox m_listShowStatus;
-	afx_msg void OnClose();
+	CListBox m_listShowStatus;	
 	CProgressCtrl m_progDecode;
 };
