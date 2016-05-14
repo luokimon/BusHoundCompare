@@ -111,7 +111,6 @@ void CBusHoundCompareDlg::InitialParam()
 	m_bCompareStart = FALSE;
 	m_bStartWriteFlag = FALSE;
 
-	m_nDataStartPoint = 0;
 	m_nDataLen = 0;
 	m_strDataPath.Empty();
 	m_Granularity = GetAllocationGranularity();
@@ -205,9 +204,31 @@ void CBusHoundCompareDlg::OnBnClickedBtnCompare()
 	else
 	{
 		// 创建工作线程
-		if(!GetRunFlag())
-			CreateWorkThread();
+		if (!GetRunFlag())
+		{
+			if (GetFileAttribute())
+			{
+				CreateWorkThread();
+			}
+		}
 	}
+}
+
+BOOL CBusHoundCompareDlg::GetFileAttribute()
+{
+	// 创建文件映射并获取文件长度
+	m_hSrcFileMap = CreateUserFileMapping(m_strDataPath, m_nSrcFileSize);
+
+	// 设置映射块大小
+	m_dwBlkSize = GetMappingBlkSize(m_nSrcFileSize);
+
+	// 根据数据文件计算数据偏移
+	if (!GetDataOffset_Ex(0, 0))
+	{
+		m_listShowStatus.AddString(_T("解析数据失败!"));
+		return FALSE;
+	}
+	return TRUE;
 }
 
 VOID CBusHoundCompareDlg::CreateWorkThread()
@@ -633,6 +654,80 @@ BOOL CBusHoundCompareDlg::GetDataOffset(__int64 &fileOffset, UINT &blkOffset)
 	}
 
 	return FALSE;
+}
+
+BOOL CBusHoundCompareDlg::GetDataOffset_Ex(__int64 fileOffset, UINT blkOffset)
+{
+	CString strLine;
+	m_nDataLen = 0;
+	m_nDataStartPoint = 0;
+	m_nPhaseStartPoint = 0;
+	m_nCmdPhaseOfsPoint = 0;
+
+
+	// 创建文件映射
+	if (!CreateMapAddr(m_hSrcFileMap, fileOffset, m_dwBlkSize, m_lpSrcMapAddress))
+		return FALSE;
+
+	while (blkOffset < m_dwBlkSize)
+	{
+		strLine = FindLine(m_lpSrcMapAddress, blkOffset, m_dwBlkSize);
+
+		if (m_nDataStartPoint)
+			CheckDataStartPoint(strLine);
+		else
+			GetDataStartPoint(strLine);
+
+		if (m_nDataLen)
+			break;
+	}
+
+	// 撤销文件映射
+	DistroyMapAddr(m_lpSrcMapAddress);
+
+	return (BOOL)m_nDataLen;
+}
+
+void	CBusHoundCompareDlg::GetDataStartPoint(CString &strLine)
+{
+	int offset = strLine.Find(_T(" Data "));
+
+	if (EOF != offset)
+	{
+		m_nDataStartPoint = offset + 1;
+
+		int phaseOffset = strLine.Find(_T("Phase"));
+		int cmdPhaseOfs = strLine.Find(_T("Cmd.Phase.Ofs(rep)"));
+		if ((EOF != phaseOffset) && (EOF != cmdPhaseOfs))
+		{
+			m_nCmdPhaseOfsPoint = cmdPhaseOfs;
+			m_nPhaseStartPoint = phaseOffset;
+		}
+		else
+		{
+			m_nDataStartPoint = 0;
+			m_nPhaseStartPoint = 0;
+			m_nCmdPhaseOfsPoint = 0;
+		}
+	}
+}
+
+void	CBusHoundCompareDlg::CheckDataStartPoint(CString &strLine)
+{
+	int dataOff = strLine.Find(_T("----"), m_nDataStartPoint);
+	int phaseOff = strLine.Find(_T("-----  "), m_nPhaseStartPoint);
+	int ofsOff = strLine.Find(_T("------------------  "), m_nCmdPhaseOfsPoint);
+
+	if ((m_nDataStartPoint == dataOff)&&(m_nPhaseStartPoint == phaseOff) &&(m_nCmdPhaseOfsPoint == ofsOff))
+	{
+		dataOff = strLine.Find(_T(" "), m_nDataStartPoint);
+		m_nDataLen = dataOff - m_nDataStartPoint;
+	}
+
+	else
+	{
+		GetDataStartPoint(strLine);
+	}
 }
 
 DWORD   CBusHoundCompareDlg::DecodeThread()

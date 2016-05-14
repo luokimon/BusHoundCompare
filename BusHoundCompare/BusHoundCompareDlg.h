@@ -158,10 +158,13 @@ private:
 	DWORD GetAllocationGranularity();
 	void InitialParam();
 
-	BOOL CreateMapAddr(HANDLE hFileMap, __int64 &fileOffset, DWORD blkSize, LPBYTE &mapAddr);
-	BOOL DistroyMapAddr(LPBYTE &mapAddr);
-	BOOL GetDataOffset(__int64 &fileOffset, UINT &blkOffset);
-	BOOL AddDisplay(LPCTSTR str);
+	BOOL	CreateMapAddr(HANDLE hFileMap, __int64 &fileOffset, DWORD blkSize, LPBYTE &mapAddr);
+	BOOL	DistroyMapAddr(LPBYTE &mapAddr);
+	BOOL	GetDataOffset(__int64 &fileOffset, UINT &blkOffset);
+	BOOL	GetDataOffset_Ex(__int64 fileOffset, UINT blkOffset);
+	void	GetDataStartPoint(CString &strLine);
+	void	CheckDataStartPoint(CString &strLine);
+	BOOL	AddDisplay(LPCTSTR str);
 
 	CString  FindLine(LPBYTE  pByte, UINT & uiIndex, UINT uiLen);
 	BYTE  StringToByte(CString &strChar);
@@ -175,7 +178,7 @@ private:
 	BOOL PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
 	void ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs);
 
-
+	BOOL GetFileAttribute();
 
 public:
 	CListBox m_listShowStatus;	
