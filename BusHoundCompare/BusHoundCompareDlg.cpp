@@ -1158,3 +1158,28 @@ void CBusHoundCompareDlg::OnDropFiles(HDROP hDropInfo)
 //
 //	return CDialogEx::OnCreate(lpCreateStruct);
 //}
+
+DWORD	CBusHoundCompareDlg::DecodeWriteThread()
+{
+
+	while (GetRunFlag())
+	{
+		// 解析数据
+
+		// 写入文件
+	}
+	return TRUE;
+}
+
+DWORD   CBusHoundCompareDlg::ReadCheckThread()
+{
+	while (GetRunFlag())
+	{
+		// 读出数据
+
+		// 比较数据
+	}
+
+	SetEndFlag(TRUE);
+	return TRUE;
+}

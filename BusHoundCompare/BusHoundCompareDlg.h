@@ -90,6 +90,9 @@ public:
 	DWORD	DecodeThread();
 	DWORD   CompareThread();
 
+	DWORD	DecodeWriteThread();
+	DWORD	ReadCheckThread();
+
 private:
 	CString m_strDataPath;
 	HANDLE  m_hSrcFileMap;
