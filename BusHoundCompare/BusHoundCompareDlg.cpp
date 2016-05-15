@@ -26,22 +26,9 @@ UINT  AFX_CDECL BusHoundDecodeThread(LPVOID lpParam)
 	return 0;
 }
 
-UINT  AFX_CDECL BusHoundCompareThread(LPVOID lpParam)
-{
-	CBusHoundCompareDlg *  lpDlg = (CBusHoundCompareDlg *)lpParam;
-
-	if (lpDlg)
-	{
-		return lpDlg->CompareThread();
-	}
-
-	return 0;
-}
-
 CBusHoundCompareDlg::CBusHoundCompareDlg(CWnd* pParent /*=NULL*/)
 	: CDialogEx(IDD_BUSHOUNDCOMPARE_DIALOG, pParent),
 	m_lpDecodeThread(NULL),
-	m_lpCompareThread(NULL),
 	m_lpSrcMapAddress(NULL)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
@@ -214,6 +201,8 @@ void CBusHoundCompareDlg::OnBnClickedBtnCompare()
 	}
 }
 
+// 函数名称: GetFileAttribute
+// 函数功能: 获取数据所在列及长度
 BOOL CBusHoundCompareDlg::GetFileAttribute()
 {
 	// 创建文件映射并获取文件长度
@@ -239,9 +228,6 @@ VOID CBusHoundCompareDlg::CreateWorkThread()
 
 	// 开启解析数据文件线程
 	CreateDecodeThread();
-
-	//开启比较数据线程
-	//CreateCompareThread();
 }
 
 HANDLE CBusHoundCompareDlg::CreateUserFileMapping(CString strPath, __int64 &fileSize)
@@ -339,36 +325,6 @@ void CBusHoundCompareDlg::DestroyDecodeThread()
 BOOL CBusHoundCompareDlg::MappingVirtualMemory()
 {
 	return FALSE;
-}
-
-// 函数名称: CreateCompareThread
-// 函数功能: 开启比较数据线程
-// 输入参数:
-// 输出参数:
-// 返回值  :
-DWORD CBusHoundCompareDlg::CreateCompareThread()
-{
-	DestroyCompareThread();
-
-	m_lpCompareThread = AfxBeginThread(BusHoundCompareThread,				//AFX_THREADPROC pfnThreadProc,
-		(LPVOID)this,						//LPVOID pParam,
-		THREAD_PRIORITY_NORMAL,    		    //int nPriority = THREAD_PRIORITY_NORMAL,
-		NULL,								//UINT nStackSize = 0,
-		0,					                //DWORD dwCreateFlags = 0, 创建后直接启动线程
-		NULL								//LPSECURITY_ATTRIBUTES lpSecurityAttrs = NULL 
-	);
-
-	return (DWORD)m_lpCompareThread;
-}
-
-void CBusHoundCompareDlg::DestroyCompareThread()
-{
-	if (m_lpCompareThread)
-	{
-		Sleep(100);
-
-		m_lpCompareThread = NULL;
-	}
 }
 
 BOOL CBusHoundCompareDlg::SetErrCode(UINT uErr)
@@ -738,6 +694,8 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 	m_strResidualData.Empty();
 
 	AddDisplay(_T("解析数据开始!"));
+
+	/*
 	// 创建文件映射并获取文件长度
 	m_hSrcFileMap = CreateUserFileMapping(m_strDataPath, m_nSrcFileSize);
 
@@ -750,6 +708,7 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 		AddDisplay(_T("解析数据失败!"));
 		return FALSE;
 	}
+	*/
 
 	CString strLine;
 	CString strData;
@@ -766,9 +725,12 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 	while (GetRunFlag())
 	{
-		//SetCompareStartFlag(TRUE); 暂时关闭
+		// 创建文件位置映射
+		if (!CreateMapAddr(m_hSrcFileMap, qwFileOffset, m_dwBlkSize, m_lpSrcMapAddress))
+			break;
 
 		// 获取命令及数据
+		uiBlkOffset = 0;
 		while (uiBlkOffset < m_dwBlkSize)
 		{
 			if (((qwFileOffset + uiBlkOffset) / stepSize) > progPos)
@@ -842,13 +804,6 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 		{
 			m_dwBlkSize = (DWORD)(m_nSrcFileSize - qwFileOffset);
 		}
-
-		// 创建前会销毁原来的映射
-		if (!CreateMapAddr(m_hSrcFileMap, qwFileOffset, m_dwBlkSize, m_lpSrcMapAddress))
-			break;
-
-		uiBlkOffset = 0;
-
 	}
 	DistroyMapAddr(m_lpSrcMapAddress);
 
@@ -1083,26 +1038,6 @@ void CBusHoundCompareDlg::ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs)
 	AddDisplay(strShow);
 }
 
-DWORD   CBusHoundCompareDlg::CompareThread()
-{
-	while (GetRunFlag())
-	{
-
-		if (GetCompareStartFlag())
-		{
-			AddDisplay(_T("比较数据开始!"));
-
-		}
-		else
-		{
-
-		}
-	}
-
-	AddDisplay(_T("比较数据结束!"));
-	return TRUE;
-}
-
 CString  CBusHoundCompareDlg::FindLine(LPBYTE  pByte, UINT & uiIndex, UINT uiLen)
 {
 	CString    strRet;
@@ -1254,27 +1189,3 @@ void CBusHoundCompareDlg::OnDropFiles(HDROP hDropInfo)
 //	return CDialogEx::OnCreate(lpCreateStruct);
 //}
 
-DWORD	CBusHoundCompareDlg::DecodeWriteThread()
-{
-
-	while (GetRunFlag())
-	{
-		// 解析数据
-
-		// 写入文件
-	}
-	return TRUE;
-}
-
-DWORD   CBusHoundCompareDlg::ReadCheckThread()
-{
-	while (GetRunFlag())
-	{
-		// 读出数据
-
-		// 比较数据
-	}
-
-	SetEndFlag(TRUE);
-	return TRUE;
-}

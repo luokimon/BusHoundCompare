@@ -30,7 +30,6 @@ using namespace std;
 #define CMD_BLK_LENIDX			(7)				// 命令块中传输长度开始位置
 
 UINT  AFX_CDECL BusHoundDecodeThread(LPVOID lpParam);
-UINT  AFX_CDECL BusHoundCompareThread(LPVOID lpParam);
 
 struct COMMAND_INFO
 {
@@ -79,7 +78,6 @@ public:
 
 public:
 	CWinThread	*m_lpDecodeThread;
-	CWinThread	*m_lpCompareThread;
 
 	UINT m_nCmdPhaseOfsPoint;		// 命令状态偏移位置
 	UINT m_nPhaseStartPoint;		// 状态开始位置
@@ -88,10 +86,6 @@ public:
 
 public:
 	DWORD	DecodeThread();
-	DWORD   CompareThread();
-
-	DWORD	DecodeWriteThread();
-	DWORD	ReadCheckThread();
 
 private:
 	CString m_strDataPath;
@@ -152,8 +146,6 @@ private:
 	DWORD CreateDecodeThread();
 	void DestroyDecodeThread();
 	BOOL MappingVirtualMemory();
-	DWORD CreateCompareThread();
-	void DestroyCompareThread();
 	VOID CreateWorkThread();
 	DWORD GetAllocationGranularity();
 	void InitialParam();
