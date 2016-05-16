@@ -152,8 +152,7 @@ private:
 
 	BOOL	CreateMapAddr(HANDLE hFileMap, __int64 &fileOffset, DWORD blkSize, LPBYTE &mapAddr);
 	BOOL	DistroyMapAddr(LPBYTE &mapAddr);
-	BOOL	GetDataOffset(__int64 &fileOffset, UINT &blkOffset);
-	BOOL	GetDataOffset_Ex(__int64 fileOffset, UINT blkOffset);
+	BOOL	GetDataOffset(__int64 fileOffset, UINT blkOffset);
 	void	GetDataStartPoint(CString &strLine);
 	void	CheckDataStartPoint(CString &strLine);
 	BOOL	AddDisplay(LPCTSTR str);
