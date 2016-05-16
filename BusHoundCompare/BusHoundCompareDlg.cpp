@@ -688,40 +688,23 @@ void	CBusHoundCompareDlg::CheckDataStartPoint(CString &strLine)
 
 DWORD   CBusHoundCompareDlg::DecodeThread()
 {
+	CString strLine;
+
 	__int64 qwFileOffset = 0;
 	UINT    uiBlkOffset = 0;
+	BOOL	bOutOfRange = FALSE;
+	WORD	progPos = 0;
+	__int64 stepSize = (m_nSrcFileSize / 1000);
+	
+	
+	m_DataIdx = 0;		// 数据偏移
+	m_CBWIdx = 0;		// 命令偏移
+	m_PhaseType = 0;	// 类型标记
+	m_DmaIdx = 0;		// DMA 偏移
+	
 
 	m_strResidualData.Empty();
-
 	AddDisplay(_T("解析数据开始!"));
-
-	/*
-	// 创建文件映射并获取文件长度
-	m_hSrcFileMap = CreateUserFileMapping(m_strDataPath, m_nSrcFileSize);
-
-	// 设置映射块大小
-	m_dwBlkSize = GetMappingBlkSize(m_nSrcFileSize);
-
-	// 根据数据文件计算数据偏移
-	if (!GetDataOffset(qwFileOffset, uiBlkOffset))
-	{
-		AddDisplay(_T("解析数据失败!"));
-		return FALSE;
-	}
-	*/
-
-	CString strLine;
-	CString strData;
-	
-	m_DataIdx = 0;
-	m_CBWIdx = 0;
-	BOOL bOutOfRange = FALSE;
-
-	m_PhaseType = 0;
-	m_DmaIdx = 0;
-
-	__int64 stepSize = m_nSrcFileSize / 1000;
-	WORD progPos = 0;
 
 	while (GetRunFlag())
 	{
