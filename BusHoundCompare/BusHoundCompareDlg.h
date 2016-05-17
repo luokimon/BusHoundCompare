@@ -8,9 +8,11 @@
 #include <queue>
 #include <vector>
 #include "afxcmn.h"
-//#include <map>
+#include <map>
 using namespace std;
 
+#define SECTOR                  (0x200)         // 扇区大小
+#define MAX_TRANSFER_LEN        (0x10000)       // 单次最大传输长度(64K)
 #define BLOCK_UNIT_SIZE			(0x400)			// 块单元个数
 #define FAT_MAX_UINT_SIZE		(0x400)			// FAT表预计单元个数
 
@@ -19,7 +21,7 @@ using namespace std;
 #define DATA_AREA_SIZE			(0x1000000)		// 16M 供数据区使用
 #define DATA_AREA_MAP_SIZE      (DATA_AREA_SIZE/SECTOR)		// 数据区映射文件长度 
 #define MAX_TRANS_SEC_NUM       (0x80)			// 单次最大传输扇区个数
-#define SECTOR                  (0x200)         // 扇区大小
+
 #define MAX_DMA_NUM				(0x10)			// DMA个数
 #define BYTE_STRING_LEN         (2)             // 每个字符表示 单字节 所占长度
 
@@ -28,6 +30,9 @@ using namespace std;
 #define CMD_BLK_CMDIDX			(0)				// 命令块中命令位置
 #define CMD_BLK_ADDRIDX			(2)				// 命令块中地址开始位置
 #define CMD_BLK_LENIDX			(7)				// 命令块中传输长度开始位置
+
+
+#define SMALL_AREA_SIZE         (0x40000)                   // 256K 供小扇区使用
 
 UINT  AFX_CDECL BusHoundDecodeThread(LPVOID lpParam);
 
@@ -85,15 +90,18 @@ public:
 	UINT m_nDataLen;				// 数据在原始文件中所占长度
 
 public:
-	DWORD	DecodeThread();
+    DWORD	DecodeThread();
+    DWORD	DecodeThread_Ex();
 
 private:
 	CString m_strDataPath;
     CString m_strDstPath;
 	HANDLE  m_hSrcFileMap;
+    HANDLE  m_hDesFileMap;
 	CMutex m_Mutex;
 	UINT m_err;
-	DWORD m_dwBlkSize;
+	DWORD m_dwSrcBlkSize;
+    DWORD m_dwDstBlkSize;
 	DWORD m_Granularity;
 	
 	BOOL m_bRun;		// 线程启动标记
@@ -106,6 +114,7 @@ private:
 	CString m_strResidualData;
 
 	LPBYTE m_lpSrcMapAddress;
+    LPBYTE m_lpDstMapAddress;
 
 	BYTE m_ucCmdData[CBW_MAX_LEN];
 	BYTE *m_lpucSecotrData[MAX_DMA_NUM];
@@ -114,6 +123,8 @@ private:
 	BYTE *m_lpucDataArea;							// 16M 供数据区使用
 	UINT m_DataFlag;
 
+    BYTE *m_lpSmallSecArea;                         // 供小扇区使用
+
 	UINT m_PhaseType;							// 0:其他状态/1:命令状态/2:数据状态
 	UINT m_DmaIdx;								// DMA 索引位置
 	UINT m_DataIdx;								// 数据索引位置
@@ -121,9 +132,18 @@ private:
 
 	BOOL m_bStartWriteFlag;						// 是否已写入标记
 
+    vector<WORD> *m_lpSmallAreaMap;             // 极限映射范围 32M
+    vector<WORD> *m_lpDstFileMap;               // 
 
 	vector<DWORD> *m_DataAreaMap;
 	queue<COMMAND_INFO> m_CommandInfo;
+
+
+    WORD    m_SmallAreaIdx;
+    WORD    m_DstFileIdx;
+    map<DWORD, WORD>    m_SmallAreaMap;
+    map<DWORD, WORD>    m_DstFileMap;
+
 private:
 	CString GetCurrentPath();
 
@@ -168,8 +188,10 @@ private:
 	BOOL CommandDecodeFlow(CString &strLine);
 	BOOL DataDecodeFlow(CString &strLine);
 	BOOL ExistedWriteFlag();
-	BOOL PseudoWriteData(DWORD addr, WORD secCnt, DWORD dmaIdx);
-	BOOL PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
+    BOOL PseudoWriteData(DWORD addr, WORD secCnt, DWORD dmaIdx);
+    BOOL PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx);
+    BOOL PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
+    BOOL PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
 	void ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs);
 
 	BOOL    GetFileAttribute();
