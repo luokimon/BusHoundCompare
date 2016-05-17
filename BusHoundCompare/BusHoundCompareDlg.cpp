@@ -145,7 +145,8 @@ CString CBusHoundCompareDlg::GetCurrentPath()
 	_tcscpy_s(szPath, MAX_PATH - 1, drive);
 	_tcscat_s(szPath, MAX_PATH - 1, dir);
 	CString strPath = szPath;
-	return strPath;
+
+	return strPath; 
 }
 
 void CBusHoundCompareDlg::OnBnClickedOk()
@@ -167,7 +168,7 @@ void CBusHoundCompareDlg::OnBnClickedBtnSelectpath()
 		NULL,
 		NULL,
 		OFN_HIDEREADONLY | OFN_OVERWRITEPROMPT,
-		_T("All Files (*.*)|*.*||"),
+		TEXT("All Files (*.*)|*.*||"),
 		NULL);
 
 	if (dlg.DoModal() == IDOK)
@@ -181,7 +182,7 @@ void CBusHoundCompareDlg::OnBnClickedBtnCompare()
 {
 	// TODO: 在此添加控件通知处理程序代码
 	if (m_strDataPath.IsEmpty())
-		MessageBox(_T("请先选取BusHound数据文件!"), _T("警告"), MB_ICONWARNING | MB_OK);
+		MessageBox(TEXT("请先选取BusHound数据文件!"), TEXT("警告"), MB_ICONWARNING | MB_OK);
 	else
 	{
 		// 创建工作线程
@@ -208,10 +209,49 @@ BOOL CBusHoundCompareDlg::GetFileAttribute()
 	// 根据数据文件计算数据偏移
 	if (!GetDataOffset(0, 0))
 	{
-		m_listShowStatus.AddString(_T("解析数据失败!"));
+		m_listShowStatus.AddString(TEXT("解析数据失败!"));
 		return FALSE;
 	}
+    else
+    {
+        CreateDstFile();
+    }
+
 	return TRUE;
+}
+
+BOOL CBusHoundCompareDlg::CreateDstFile()
+{
+    m_strDstPath = GetCurrentPath() + TEXT("PseudoDev.bin");
+
+    HANDLE hFile = CreateFile(m_strDstPath, 
+        GENERIC_READ | GENERIC_WRITE, 
+        0, 
+        NULL, 
+        CREATE_ALWAYS,
+        FILE_ATTRIBUTE_NORMAL, 
+        NULL);
+
+    if (hFile == INVALID_HANDLE_VALUE)
+    {
+        MessageBox(TEXT("创建文件失败!"));
+        return  FALSE;
+    }
+
+    LARGE_INTEGER liDistanceToMove;
+    liDistanceToMove.QuadPart = m_nDstFileSize; //设置成这个大，单位字节
+    if (!SetFilePointerEx(hFile, liDistanceToMove, NULL, FILE_BEGIN))
+    {
+        MessageBox(TEXT("移动文件指针失败!"));
+        return FALSE;
+    }
+    if (!SetEndOfFile(hFile))
+    {
+        MessageBox(TEXT("设置文件尾失败!"));
+        return FALSE;
+    }
+    CloseHandle(hFile);
+    return TRUE;
 }
 
 VOID CBusHoundCompareDlg::CreateWorkThread()
@@ -237,7 +277,7 @@ HANDLE CBusHoundCompareDlg::CreateUserFileMapping(CString strPath, __int64 &file
 	);
 	if (INVALID_HANDLE_VALUE == hFile)
 	{
-		MessageBox(_T("创建文件对象失败!"));
+		MessageBox(TEXT("创建文件对象失败!"));
 		return INVALID_HANDLE_VALUE;
 	}
 
@@ -251,7 +291,7 @@ HANDLE CBusHoundCompareDlg::CreateUserFileMapping(CString strPath, __int64 &file
 	);
 	if (INVALID_HANDLE_VALUE == hFileMap)
 	{
-		MessageBox(_T("创建文件对象失败!"));
+		MessageBox(TEXT("创建文件对象失败!"));
 		return INVALID_HANDLE_VALUE;
 	}
 
@@ -565,8 +605,12 @@ BOOL CBusHoundCompareDlg::GetDataOffset(__int64 fileOffset, UINT blkOffset)
 		else
 			GetDataStartPoint(strLine);
 
-		if (m_nDataLen)
-			break;
+        if (m_nDataLen)
+        {
+            // 预估大小
+            if(GetDstFileSize(strLine))
+			    break;
+        }
 	}
 
 	// 撤销文件映射
@@ -577,14 +621,14 @@ BOOL CBusHoundCompareDlg::GetDataOffset(__int64 fileOffset, UINT blkOffset)
 
 void	CBusHoundCompareDlg::GetDataStartPoint(CString &strLine)
 {
-	int offset = strLine.Find(_T(" Data "));
+	int offset = strLine.Find(TEXT(" Data "));
 
 	if (EOF != offset)
 	{
 		m_nDataStartPoint = offset + 1;
 
-		int phaseOffset = strLine.Find(_T("Phase"));
-		int cmdPhaseOfs = strLine.Find(_T("Cmd.Phase.Ofs(rep)"));
+		int phaseOffset = strLine.Find(TEXT("Phase"));
+		int cmdPhaseOfs = strLine.Find(TEXT("Cmd.Phase.Ofs(rep)"));
 		if ((EOF != phaseOffset) && (EOF != cmdPhaseOfs))
 		{
 			m_nCmdPhaseOfsPoint = cmdPhaseOfs;
@@ -601,13 +645,13 @@ void	CBusHoundCompareDlg::GetDataStartPoint(CString &strLine)
 
 void	CBusHoundCompareDlg::CheckDataStartPoint(CString &strLine)
 {
-	int dataOff = strLine.Find(_T("----"), m_nDataStartPoint);
-	int phaseOff = strLine.Find(_T("-----  "), m_nPhaseStartPoint);
-	int ofsOff = strLine.Find(_T("------------------  "), m_nCmdPhaseOfsPoint);
+	int dataOff = strLine.Find(TEXT("----"), m_nDataStartPoint);
+	int phaseOff = strLine.Find(TEXT("-----  "), m_nPhaseStartPoint);
+	int ofsOff = strLine.Find(TEXT("------------------  "), m_nCmdPhaseOfsPoint);
 
 	if ((m_nDataStartPoint == dataOff) && (m_nPhaseStartPoint == phaseOff) && (m_nCmdPhaseOfsPoint == ofsOff))
 	{
-		dataOff = strLine.Find(_T(" "), m_nDataStartPoint);
+		dataOff = strLine.Find(TEXT(" "), m_nDataStartPoint);
 		m_nDataLen = dataOff - m_nDataStartPoint;
 	}
 
@@ -617,6 +661,19 @@ void	CBusHoundCompareDlg::CheckDataStartPoint(CString &strLine)
 	}
 }
 
+// 函数名称: GetDstFileSize
+// 函数功能: 获取预估目标文件大小
+// 输入参数: strLine(行数据)
+BOOL CBusHoundCompareDlg::GetDstFileSize(CString &strLine)
+{
+    int lineLen = strLine.GetLength();
+    int linedataNum = ((m_nDataLen + 2) / 13) * 4;      // 开始与结尾加一个字符空格,每4个 BYTE 一个单元
+    int srcDesRatio = (lineLen / linedataNum) * 2;      // 行与数据比例以及读写各占1/2
+
+    m_nDstFileSize = m_nSrcFileSize / srcDesRatio;
+    return TRUE;
+}
+
 DWORD   CBusHoundCompareDlg::DecodeThread()
 {
 	__int64 qwFileOffset = 0;
@@ -624,7 +681,7 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 	m_strResidualData.Empty();
 
-	AddDisplay(_T("解析数据开始!"));
+	AddDisplay(TEXT("解析数据开始!"));
 
 	CString strLine;
 	CString strData;
@@ -672,10 +729,10 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 			if (!m_strResidualData.IsEmpty())
 				continue;
 
-			int cmdIdx = strLine.Find(_T("CMD"), m_nPhaseStartPoint);
-			int inIdx = strLine.Find(_T("IN"), m_nPhaseStartPoint);
-			int outIdx = strLine.Find(_T("OUT"), m_nPhaseStartPoint);
-			int spaceIdx = strLine.Find(_T(" "), m_nPhaseStartPoint);
+			int cmdIdx = strLine.Find(TEXT("CMD"), m_nPhaseStartPoint);
+			int inIdx = strLine.Find(TEXT("IN"), m_nPhaseStartPoint);
+			int outIdx = strLine.Find(TEXT("OUT"), m_nPhaseStartPoint);
+			int spaceIdx = strLine.Find(TEXT(" "), m_nPhaseStartPoint);
 
 			if ((cmdIdx == m_nPhaseStartPoint) || ((spaceIdx == m_nPhaseStartPoint) && (1 == m_PhaseType)))
 			{
@@ -723,7 +780,7 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 	if (!GetStopFlag())
 	{
 		m_progDecode.SetPos(1000);
-		AddDisplay(_T("解析数据结束!"));
+		AddDisplay(TEXT("解析数据结束!"));
 	}
 	SetEndFlag(TRUE);
 	return TRUE;
@@ -945,7 +1002,7 @@ BOOL CBusHoundCompareDlg::PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, 
 void CBusHoundCompareDlg::ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs)
 {
 	CString strShow;
-	strShow.Format(_T("Error Address: 0x%-10X, Error Phase Offset: %-31s"), addr, cmdPhaseOfs);
+	strShow.Format(TEXT("Error Address: 0x%-10X, Error Phase Offset: %-31s"), addr, cmdPhaseOfs);
 	AddDisplay(strShow);
 }
 
@@ -1082,7 +1139,7 @@ void CBusHoundCompareDlg::OnDropFiles(HDROP hDropInfo)
 	}
 	else
 	{
-		MessageBox(_T("请单独选择需要解析的文件!"), NULL, MB_ICONERROR | MB_OK);
+		MessageBox(TEXT("请单独选择需要解析的文件!"), NULL, MB_ICONERROR | MB_OK);
 	}
 	DragFinish(hDropInfo);
 

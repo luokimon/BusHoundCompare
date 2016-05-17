@@ -89,6 +89,7 @@ public:
 
 private:
 	CString m_strDataPath;
+    CString m_strDstPath;
 	HANDLE  m_hSrcFileMap;
 	CMutex m_Mutex;
 	UINT m_err;
@@ -101,6 +102,7 @@ private:
 	BOOL m_bCompareStart;	
 
 	__int64 m_nSrcFileSize;	
+    __int64 m_nDstFileSize;
 	CString m_strResidualData;
 
 	LPBYTE m_lpSrcMapAddress;
@@ -155,6 +157,7 @@ private:
 	BOOL	GetDataOffset(__int64 fileOffset, UINT blkOffset);
 	void	GetDataStartPoint(CString &strLine);
 	void	CheckDataStartPoint(CString &strLine);
+    BOOL    GetDstFileSize(CString &strLine);
 	BOOL	AddDisplay(LPCTSTR str);
 
 	CString  FindLine(LPBYTE  pByte, UINT & uiIndex, UINT uiLen);
@@ -169,7 +172,8 @@ private:
 	BOOL PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
 	void ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs);
 
-	BOOL GetFileAttribute();
+	BOOL    GetFileAttribute();
+    BOOL    CreateDstFile();
 
 public:
 	CListBox m_listShowStatus;	
