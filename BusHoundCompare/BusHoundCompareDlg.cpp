@@ -1126,11 +1126,11 @@ void CBusHoundCompareDlg::OnClose()
 		m_DataAreaMap = NULL;
 	}
 
-    if (!m_strDstPath.IsEmpty())
-    {
-        // 删除临时生成文件
-        DeleteFile(m_strDstPath.GetBuffer());
-    }
+    //if (!m_strDstPath.IsEmpty())
+    //{
+    //    // 删除临时生成文件
+    //    DeleteFile(m_strDstPath.GetBuffer());
+    //}
     
 
 	CDialogEx::OnClose();
