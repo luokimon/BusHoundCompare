@@ -97,6 +97,7 @@ void CBusHoundCompareDlg::InitialParam()
 
 	m_nDataLen = 0;
 	m_strDataPath.Empty();
+    m_strDstPath.Empty();
 	m_Granularity = GetAllocationGranularity();
 }
 
@@ -1124,6 +1125,14 @@ void CBusHoundCompareDlg::OnClose()
 		delete m_DataAreaMap;
 		m_DataAreaMap = NULL;
 	}
+
+    if (!m_strDstPath.IsEmpty())
+    {
+        // 删除临时生成文件
+        DeleteFile(m_strDstPath.GetBuffer());
+    }
+    
+
 	CDialogEx::OnClose();
 }
 
