@@ -11,6 +11,8 @@
 #include <map>
 using namespace std;
 
+#define DATA_FILE_EX			(1)				// 新解码流程
+
 #define SECTOR                  (0x200)         // 扇区大小
 #define MAX_TRANSFER_LEN        (0x10000)       // 单次最大传输长度(64K)
 #define BLOCK_UNIT_SIZE			(0x400)			// 块单元个数
@@ -91,17 +93,24 @@ public:
 
 public:
     DWORD	DecodeThread();
-    DWORD	DecodeThread_Ex();
 
 private:
-	CString m_strDataPath;
-    CString m_strDstPath;
+	// 源文件相关参数
+	CString m_strSrcPath;
 	HANDLE  m_hSrcFileMap;
-    HANDLE  m_hDesFileMap;
+	DWORD m_dwSrcBlkSize;
+	LPBYTE m_lpSrcMapAddress;
+
+	// 目标文件相关参数
+    CString m_strDstPath;
+    HANDLE  m_hDstFileMap;
+    DWORD m_dwDstBlkSize;
+    LPBYTE m_lpDstMapAddress;
+	DWORD m_BlkIdx;
+
+
 	CMutex m_Mutex;
 	UINT m_err;
-	DWORD m_dwSrcBlkSize;
-    DWORD m_dwDstBlkSize;
 	DWORD m_Granularity;
 	
 	BOOL m_bRun;		// 线程启动标记
@@ -113,8 +122,6 @@ private:
     __int64 m_nDstFileSize;
 	CString m_strResidualData;
 
-	LPBYTE m_lpSrcMapAddress;
-    LPBYTE m_lpDstMapAddress;
 
 	BYTE m_ucCmdData[CBW_MAX_LEN];
 	BYTE *m_lpucSecotrData[MAX_DMA_NUM];
@@ -193,9 +200,11 @@ private:
     BOOL PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
     BOOL PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
 	void ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs);
+	void ShowMissInfo(DWORD addr, TCHAR *cmdPhaseOfs);
 
 	BOOL    GetFileAttribute();
-    BOOL    CreateDstFile();
+	BOOL    CreateDstFile();
+	BOOL	AdjustFileMap(WORD idx, __int64 &qwFileOffset);
 
 public:
 	CListBox m_listShowStatus;	

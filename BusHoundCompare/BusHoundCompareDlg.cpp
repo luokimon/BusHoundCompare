@@ -19,7 +19,6 @@ UINT  AFX_CDECL BusHoundDecodeThread(LPVOID lpParam)
 	if (lpDlg)
 	{
 		return lpDlg->DecodeThread();
-        //return lpDlg->DecodeThread_Ex();
 	}
 
 	return 0;
@@ -31,7 +30,8 @@ CBusHoundCompareDlg::CBusHoundCompareDlg(CWnd* pParent /*=NULL*/)
 	m_lpSrcMapAddress(NULL),
     m_lpDstMapAddress(NULL),
     m_SmallAreaIdx(0),
-    m_DstFileIdx(0)
+    m_DstFileIdx(0),
+	m_BlkIdx(INFINITE)
 {
 	m_hIcon = AfxGetApp()->LoadIcon(IDR_MAINFRAME);
 }
@@ -78,7 +78,7 @@ BOOL CBusHoundCompareDlg::OnInitDialog()
 
 	for (int i = 0; i < MAX_DMA_NUM; i++)
 	{
-		m_lpucSecotrData[i] = new BYTE[MAX_TRANS_SEC_NUM*SECTOR];
+		m_lpucSecotrData[i] = new BYTE[MAX_TRANSFER_LEN];
 	}
 
 	m_lpucSysArea = new BYTE[SYSTEM_AREA_SIZE];
@@ -106,7 +106,7 @@ void CBusHoundCompareDlg::InitialParam()
 	m_bStartWriteFlag = FALSE;
 
 	m_nDataLen = 0;
-	m_strDataPath.Empty();
+	m_strSrcPath.Empty();
     m_strDstPath.Empty();
 	m_Granularity = GetAllocationGranularity();
 }
@@ -184,15 +184,15 @@ void CBusHoundCompareDlg::OnBnClickedBtnSelectpath()
 
 	if (dlg.DoModal() == IDOK)
 	{
-		m_strDataPath = dlg.GetPathName();
-		m_editDataPath.SetWindowText(m_strDataPath);
+		m_strSrcPath = dlg.GetPathName();
+		m_editDataPath.SetWindowText(m_strSrcPath);
 	}
 }
 
 void CBusHoundCompareDlg::OnBnClickedBtnCompare()
 {
 	// TODO: 在此添加控件通知处理程序代码
-	if (m_strDataPath.IsEmpty())
+	if (m_strSrcPath.IsEmpty())
 		MessageBox(TEXT("请先选取BusHound数据文件!"), TEXT("警告"), MB_ICONWARNING | MB_OK);
 	else
 	{
@@ -212,7 +212,7 @@ void CBusHoundCompareDlg::OnBnClickedBtnCompare()
 BOOL CBusHoundCompareDlg::GetFileAttribute()
 {
 	// 创建源文件映射并获取文件长度
-	m_hSrcFileMap = CreateUserFileMapping(m_strDataPath, m_nSrcFileSize);
+	m_hSrcFileMap = CreateUserFileMapping(m_strSrcPath, m_nSrcFileSize);
 
 	// 设置源映射块大小
 	m_dwSrcBlkSize = GetMappingBlkSize(m_nSrcFileSize);
@@ -228,7 +228,7 @@ BOOL CBusHoundCompareDlg::GetFileAttribute()
         if (CreateDstFile())
         {
             // 创建目标文件映射并获取文件长度
-            m_hDesFileMap = CreateUserFileMapping(m_strDstPath, m_nDstFileSize);
+            m_hDstFileMap = CreateUserFileMapping(m_strDstPath, m_nDstFileSize);
 
             // 设置目标映射块大小
             m_dwDstBlkSize = GetMappingBlkSize(m_nDstFileSize);
@@ -274,6 +274,7 @@ BOOL CBusHoundCompareDlg::CreateDstFile()
         return FALSE;
     }
     CloseHandle(hFile);
+
     return TRUE;
 }
 
@@ -582,7 +583,7 @@ BOOL CBusHoundCompareDlg::CreateMapAddr(HANDLE hFileMap, __int64 &fileOffset, DW
 
 	// 映射视图
 	mapAddr = (LPBYTE)MapViewOfFile(hFileMap,
-		FILE_MAP_READ,
+		FILE_MAP_READ | FILE_MAP_WRITE,
 		(DWORD)(fileOffset >> 32),
 		(DWORD)(fileOffset & 0xFFFFFFFF),
 		blkSize);
@@ -721,7 +722,7 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 
 	while (GetRunFlag())
 	{
-		// 创建文件位置映射
+		// 创建源文件位置映射
 		if (!CreateMapAddr(m_hSrcFileMap, qwFileOffset, m_dwSrcBlkSize, m_lpSrcMapAddress))
 			break;
 
@@ -799,6 +800,7 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 		}
 	}
 	DistroyMapAddr(m_lpSrcMapAddress);
+	DistroyMapAddr(m_lpDstMapAddress);
 
 	if (!GetStopFlag())
 	{
@@ -807,118 +809,6 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 	}
 	SetEndFlag(TRUE);
 	return TRUE;
-}
-
-DWORD   CBusHoundCompareDlg::DecodeThread_Ex()
-{
-    __int64 qwFileOffset = 0;
-    UINT    uiBlkOffset = 0;
-
-    m_strResidualData.Empty();
-
-    AddDisplay(TEXT("解析数据开始!"));
-
-    CString strLine;
-    CString strData;
-
-    m_DataIdx = 0;
-    m_CBWIdx = 0;
-    BOOL bOutOfRange = FALSE;
-
-    m_PhaseType = 0;
-    m_DmaIdx = 0;
-
-    __int64 stepSize = m_nSrcFileSize / 1000;
-    WORD progPos = 0;
-
-    while (GetRunFlag())
-    {
-        // 创建文件位置映射
-        if (!CreateMapAddr(m_hSrcFileMap, qwFileOffset, m_dwSrcBlkSize, m_lpSrcMapAddress))
-            break;
-
-        // 获取命令及数据
-        uiBlkOffset = 0;
-        while (uiBlkOffset < m_dwSrcBlkSize)
-        {
-            if (((qwFileOffset + uiBlkOffset) / stepSize) > progPos)
-            {
-                m_progDecode.StepIt();
-                progPos++;
-            }
-            if (GetStopFlag())
-            {
-                SetRunFlag(FALSE);
-                break;
-            }
-
-            // 判断越界条件
-            if ((qwFileOffset + uiBlkOffset) >= m_nSrcFileSize)
-            {
-                bOutOfRange = TRUE;
-                break;
-            }
-
-            strLine = FindLine(m_lpSrcMapAddress, uiBlkOffset, m_dwSrcBlkSize);
-
-            if (!m_strResidualData.IsEmpty())
-                continue;
-
-            int cmdIdx = strLine.Find(TEXT("CMD"), m_nPhaseStartPoint);
-            int inIdx = strLine.Find(TEXT("IN"), m_nPhaseStartPoint);
-            int outIdx = strLine.Find(TEXT("OUT"), m_nPhaseStartPoint);
-            int spaceIdx = strLine.Find(TEXT(" "), m_nPhaseStartPoint);
-
-            if ((cmdIdx == m_nPhaseStartPoint) || ((spaceIdx == m_nPhaseStartPoint) && (1 == m_PhaseType)))
-            {
-                // 处理两条命令靠近的情况
-                if ((cmdIdx == m_nPhaseStartPoint))
-                    m_CBWIdx = 0;
-
-                CommandDecodeFlow(strLine);
-            }
-            else if (((inIdx == m_nPhaseStartPoint) || (outIdx == m_nPhaseStartPoint)) || ((spaceIdx == m_nPhaseStartPoint) && (2 == m_PhaseType)))
-            {
-                // 处理两条数据靠近的情况
-                if ((inIdx == m_nPhaseStartPoint) || (outIdx == m_nPhaseStartPoint))
-                    m_DataIdx = 0;
-
-                DataDecodeFlow(strLine);
-            }
-            else
-            {
-                m_DataIdx = 0;
-                m_CBWIdx = 0;
-                m_PhaseType = 0;
-            }
-        }
-        // 判断越界则跳出
-        if (bOutOfRange)
-            break;
-
-        qwFileOffset += m_dwSrcBlkSize;
-
-        if (qwFileOffset > m_nSrcFileSize)
-        {
-            SetRunFlag(FALSE);
-            break;
-        }
-
-        // 文件结尾长度不能越界
-        if ((m_nSrcFileSize - qwFileOffset) < m_dwSrcBlkSize)
-        {
-            m_dwSrcBlkSize = (DWORD)(m_nSrcFileSize - qwFileOffset);
-        }
-    }
-    DistroyMapAddr(m_lpSrcMapAddress);
-
-    if (!GetStopFlag())
-    {
-        m_progDecode.SetPos(1000);
-        AddDisplay(TEXT("解析数据结束!"));
-    }
-    SetEndFlag(TRUE);
-    return TRUE;
 }
 
 // 函数名称: CommandDecodeFlow
@@ -1022,8 +912,11 @@ BOOL CBusHoundCompareDlg::DataDecodeFlow(CString &strLine)
 			if (m_CommandInfo.front().direction)
 			{
 				// 写出数据
+#if DATA_FILE_EX
+                if (!PseudoWriteData_Ex(addr, secCnt, dmaIdx))
+#else
                 if (!PseudoWriteData(addr, secCnt, dmaIdx))
-                //if (!PseudoWriteData_Ex(addr, secCnt, dmaIdx))
+#endif
 				{
 					return FALSE;
 				}
@@ -1031,8 +924,11 @@ BOOL CBusHoundCompareDlg::DataDecodeFlow(CString &strLine)
 			else
 			{
 				// 读入数据
+#if DATA_FILE_EX
+                if (!PseudoReadData_Ex(addr, secCnt, dmaIdx, cmdPhaseOfs))
+#else
                 if (!PseudoReadData(addr, secCnt, dmaIdx, cmdPhaseOfs))
-                //if (!PseudoReadData_Ex(addr, secCnt, dmaIdx, cmdPhaseOfs))
+#endif
 				{
 					return FALSE;
 				}
@@ -1100,6 +996,8 @@ BOOL CBusHoundCompareDlg::PseudoWriteData(DWORD addr, WORD secCnt, DWORD dmaIdx)
 
 BOOL CBusHoundCompareDlg::PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx)
 {
+	__int64 qwFileOffset;
+
     // 根据扇区数区别对待
     if (secCnt < 0x80)
     {
@@ -1123,8 +1021,12 @@ BOOL CBusHoundCompareDlg::PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaI
             m_DstFileMap.insert(pair<DWORD, WORD>(addr, m_DstFileIdx));
         }
 
-        // 此方式待修正 (边界问题待处理)
-        memcpy(&m_lpDstMapAddress[m_SmallAreaMap[addr] * SECTOR], m_lpucSecotrData[dmaIdx], MAX_TRANSFER_LEN);
+		if (AdjustFileMap(m_DstFileMap[addr], qwFileOffset))
+		{
+			// 此方式待修正 (边界问题待处理)
+			memcpy(&m_lpDstMapAddress[m_DstFileMap[addr] * MAX_TRANSFER_LEN - qwFileOffset], m_lpucSecotrData[dmaIdx], MAX_TRANSFER_LEN);
+		}
+        
 
         m_DstFileIdx++;
     }
@@ -1133,6 +1035,26 @@ BOOL CBusHoundCompareDlg::PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaI
     m_CommandInfo.pop();
 
     return TRUE;
+}
+
+BOOL CBusHoundCompareDlg::AdjustFileMap(WORD idx, __int64 &qwFileOffset)
+{
+	qwFileOffset = (__int64)idx*MAX_TRANSFER_LEN;
+
+	if (m_BlkIdx != (qwFileOffset / m_dwDstBlkSize))
+	{
+		DWORD blkSize = (DWORD)(((m_nDstFileSize - qwFileOffset) > m_dwDstBlkSize) ? m_dwDstBlkSize : (m_nDstFileSize - qwFileOffset));
+
+		// 创建目标文件位置映射
+		if (!CreateMapAddr(m_hDstFileMap, qwFileOffset, blkSize, m_lpDstMapAddress))
+			return FALSE;
+
+		m_BlkIdx = (DWORD)(qwFileOffset / m_dwDstBlkSize);
+	}
+
+	
+
+	return TRUE;
 }
 
 // 函数名称: PseudoReadData
@@ -1176,21 +1098,25 @@ BOOL CBusHoundCompareDlg::PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, 
 BOOL CBusHoundCompareDlg::PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs)
 {
     BOOL bMatch;
+	__int64 qwFileOffset;
     // 根据扇区数区别对待
     if (secCnt < 0x80)
     {
         bMatch = TRUE;
+		DWORD tmpAddr = addr;
         for (int i = 0; i < secCnt; i++)
         {
-            if (m_SmallAreaMap.end() != m_SmallAreaMap.find(addr))
+            if (m_SmallAreaMap.end() != m_SmallAreaMap.find(tmpAddr))
             {
-                if (0 != memcmp(&m_lpSmallSecArea[m_SmallAreaMap[addr] * SECTOR], &m_lpucSecotrData[dmaIdx][i*SECTOR], SECTOR))
+                if (0 != memcmp(&m_lpSmallSecArea[m_SmallAreaMap[tmpAddr] * SECTOR], &m_lpucSecotrData[dmaIdx][i*SECTOR], SECTOR))
                 {
                     bMatch = FALSE;
                     break;
                 }
             }
-            addr++;
+			else
+				ShowMissInfo(tmpAddr, cmdPhaseOfs);
+			tmpAddr++;
         }
 
         if (!bMatch)
@@ -1200,14 +1126,19 @@ BOOL CBusHoundCompareDlg::PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaId
     }
     else
     {
-        if (m_SmallAreaMap.end() != m_DstFileMap.find(addr))
+        if (m_DstFileMap.end() != m_DstFileMap.find(addr))
         {
-            // 此方式待修正 (边界问题待处理)
-            if (0 != memcmp(&m_lpDstMapAddress[m_SmallAreaMap[addr] * SECTOR], m_lpucSecotrData[dmaIdx], MAX_TRANSFER_LEN))
-            {
-                ShowErrInfo(addr, cmdPhaseOfs);
-            }
+			if (AdjustFileMap(m_DstFileMap[addr], qwFileOffset))
+			{
+				// 此方式待修正 (边界问题待处理)
+				if (0 != memcmp(&m_lpDstMapAddress[m_DstFileMap[addr] * MAX_TRANSFER_LEN - qwFileOffset], m_lpucSecotrData[dmaIdx], MAX_TRANSFER_LEN))
+				{
+					ShowErrInfo(addr, cmdPhaseOfs);
+				}
+			}
         }
+		else
+			ShowMissInfo(addr, cmdPhaseOfs);
     }
 
     SetDMAIdxMask(dmaIdx, FALSE);
@@ -1220,6 +1151,13 @@ void CBusHoundCompareDlg::ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs)
 {
 	CString strShow;
 	strShow.Format(TEXT("Error Address: 0x%-10X, Error Phase Offset: %-31s"), addr, cmdPhaseOfs);
+	AddDisplay(strShow);
+}
+
+void CBusHoundCompareDlg::ShowMissInfo(DWORD addr, TCHAR *cmdPhaseOfs)
+{
+	CString strShow;
+	strShow.Format(TEXT("Miss Address: 0x%-10X, Miss Phase Offset: %-31s"), addr, cmdPhaseOfs);
 	AddDisplay(strShow);
 }
 
@@ -1363,8 +1301,8 @@ void CBusHoundCompareDlg::OnDropFiles(HDROP hDropInfo)
 
 	if (1 == DragQueryFile(hDropInfo, INFINITE, NULL, NULL))
 	{
-		DragQueryFile(hDropInfo, NULL, m_strDataPath.GetBufferSetLength(MAX_PATH), MAX_PATH);
-		m_editDataPath.SetWindowText(m_strDataPath);
+		DragQueryFile(hDropInfo, NULL, m_strSrcPath.GetBufferSetLength(MAX_PATH), MAX_PATH);
+		m_editDataPath.SetWindowText(m_strSrcPath);
 		//m_editDataPath.UpdateWindow();
 	}
 	else
