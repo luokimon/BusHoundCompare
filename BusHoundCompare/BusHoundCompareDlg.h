@@ -150,6 +150,7 @@ private:
     WORD    m_DstFileIdx;
     map<DWORD, WORD>    m_SmallAreaMap;
     map<DWORD, WORD>    m_DstFileMap;
+    map<DWORD, WORD>    m_DstSecMap;
 
 private:
 	CString GetCurrentPath();
@@ -201,6 +202,7 @@ private:
     BOOL PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
 	void ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs);
 	void ShowMissInfo(DWORD addr, TCHAR *cmdPhaseOfs);
+    void ShowOverflowInfo(DWORD addr, TCHAR *cmdPhaseOfs);
 
 	BOOL    GetFileAttribute();
 	BOOL    CreateDstFile();

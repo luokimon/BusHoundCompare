@@ -999,7 +999,7 @@ BOOL CBusHoundCompareDlg::PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaI
 	__int64 qwFileOffset;
 
     // 根据扇区数区别对待
-    if (secCnt < 0x80)
+    if (secCnt == 1)
     {
         // 小扇区模式每次写一扇区数据,并更新映射表
         for (int i = 0; i < secCnt; i++)
@@ -1019,14 +1019,26 @@ BOOL CBusHoundCompareDlg::PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaI
         if (m_DstFileMap.end() == m_DstFileMap.find(addr))
         {
             m_DstFileMap.insert(pair<DWORD, WORD>(addr, m_DstFileIdx));
+            m_DstSecMap.insert(pair<DWORD, WORD>(addr, secCnt));
         }
 
 		if (AdjustFileMap(m_DstFileMap[addr], qwFileOffset))
 		{
-			// 此方式待修正 (边界问题待处理)
 			memcpy(&m_lpDstMapAddress[m_DstFileMap[addr] * MAX_TRANSFER_LEN - qwFileOffset], m_lpucSecotrData[dmaIdx], MAX_TRANSFER_LEN);
 		}
         
+        // 小块数据同步更新到小块缓存中
+        for (map<DWORD, WORD>::iterator iter = m_SmallAreaMap.begin(); iter != m_SmallAreaMap.end(); ++iter)
+        {
+            DWORD smallAddr = (*iter).first;
+            WORD smallIdx = (*iter).second;
+
+            if ((smallAddr >= addr)&&(smallAddr <(addr+ secCnt)))
+            {
+                memcpy(&m_lpSmallSecArea[smallIdx*SECTOR], &m_lpucSecotrData[dmaIdx][(smallAddr - addr)*SECTOR], SECTOR);
+            }
+            
+        }
 
         m_DstFileIdx++;
     }
@@ -1052,7 +1064,7 @@ BOOL CBusHoundCompareDlg::AdjustFileMap(WORD idx, __int64 &qwFileOffset)
 		m_BlkIdx = (DWORD)(qwFileOffset / m_dwDstBlkSize);
 	}
 
-	
+    qwFileOffset = m_BlkIdx*m_dwDstBlkSize;
 
 	return TRUE;
 }
@@ -1100,7 +1112,7 @@ BOOL CBusHoundCompareDlg::PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaId
     BOOL bMatch;
 	__int64 qwFileOffset;
     // 根据扇区数区别对待
-    if (secCnt < 0x80)
+    if (secCnt == 1)
     {
         bMatch = TRUE;
 		DWORD tmpAddr = addr;
@@ -1126,19 +1138,42 @@ BOOL CBusHoundCompareDlg::PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaId
     }
     else
     {
-        if (m_DstFileMap.end() != m_DstFileMap.find(addr))
+        DWORD tmpAddr = addr;
+        WORD tmpSecCnt = secCnt;
+
+        // 需添加算法减少循环
+        for (map<DWORD, WORD>::iterator iter = m_DstFileMap.begin(); iter != m_DstFileMap.end(); ++iter)
         {
-			if (AdjustFileMap(m_DstFileMap[addr], qwFileOffset))
-			{
-				// 此方式待修正 (边界问题待处理)
-				if (0 != memcmp(&m_lpDstMapAddress[m_DstFileMap[addr] * MAX_TRANSFER_LEN - qwFileOffset], m_lpucSecotrData[dmaIdx], MAX_TRANSFER_LEN))
-				{
-					ShowErrInfo(addr, cmdPhaseOfs);
-				}
-			}
+            DWORD fileAddr = (*iter).first;
+            WORD fileIdx = (*iter).second;
+
+            if ((tmpAddr >= fileAddr) && (tmpAddr < (fileAddr + m_DstSecMap[fileAddr])))
+            {
+                if (AdjustFileMap(m_DstFileMap[tmpAddr], qwFileOffset))
+                {
+                    // 区块内流程
+                    DWORD dstMapAddr = (DWORD)(m_DstFileMap[fileAddr] * MAX_TRANSFER_LEN - qwFileOffset + (tmpAddr - fileAddr)*SECTOR);
+                    WORD transSec = (WORD)(((fileAddr + m_DstSecMap[fileAddr] - tmpAddr)) > tmpSecCnt ? tmpSecCnt : ((fileAddr + m_DstSecMap[fileAddr] - tmpAddr)));
+                    if (0 != memcmp(&m_lpDstMapAddress[dstMapAddr], &m_lpucSecotrData[dmaIdx][(secCnt - tmpSecCnt)*SECTOR], transSec*SECTOR))
+                    {
+                        ShowErrInfo(tmpAddr, cmdPhaseOfs);
+                    }
+
+                    tmpSecCnt -= transSec;
+                    tmpAddr += transSec;
+
+                    // 比较完成退出循环
+                    if (0 == tmpSecCnt)
+                        break;
+                }
+            }
+
         }
-		else
-			ShowMissInfo(addr, cmdPhaseOfs);
+
+        if (tmpSecCnt)
+        {
+            ShowMissInfo(addr, cmdPhaseOfs);
+        }			
     }
 
     SetDMAIdxMask(dmaIdx, FALSE);
@@ -1159,6 +1194,13 @@ void CBusHoundCompareDlg::ShowMissInfo(DWORD addr, TCHAR *cmdPhaseOfs)
 	CString strShow;
 	strShow.Format(TEXT("Miss Address: 0x%-10X, Miss Phase Offset: %-31s"), addr, cmdPhaseOfs);
 	AddDisplay(strShow);
+}
+
+void CBusHoundCompareDlg::ShowOverflowInfo(DWORD addr, TCHAR *cmdPhaseOfs)
+{
+    CString strShow;
+    strShow.Format(TEXT("OverFlow Address: 0x%-10X, OverFlow Phase Offset: %-31s"), addr, cmdPhaseOfs);
+    AddDisplay(strShow);
 }
 
 CString  CBusHoundCompareDlg::FindLine(LPBYTE  pByte, UINT & uiIndex, UINT uiLen)
