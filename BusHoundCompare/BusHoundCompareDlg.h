@@ -197,7 +197,7 @@ private:
 	BOOL DataDecodeFlow(CString &strLine);
 	BOOL ExistedWriteFlag();
     BOOL PseudoWriteData(DWORD addr, WORD secCnt, DWORD dmaIdx);
-    BOOL PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx);
+    BOOL PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
     BOOL PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
     BOOL PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs);
 	void ShowErrInfo(DWORD addr, TCHAR *cmdPhaseOfs);
@@ -207,6 +207,7 @@ private:
 	BOOL    GetFileAttribute();
 	BOOL    CreateDstFile();
 	BOOL	AdjustFileMap(WORD idx, __int64 &qwFileOffset);
+    BOOL    AddNewMapData(DWORD addr, WORD secCnt, DWORD dmaIdx);
 
 public:
 	CListBox m_listShowStatus;	

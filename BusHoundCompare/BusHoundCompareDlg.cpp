@@ -913,7 +913,7 @@ BOOL CBusHoundCompareDlg::DataDecodeFlow(CString &strLine)
 			{
 				// 写出数据
 #if DATA_FILE_EX
-                if (!PseudoWriteData_Ex(addr, secCnt, dmaIdx))
+                if (!PseudoWriteData_Ex(addr, secCnt, dmaIdx, cmdPhaseOfs))
 #else
                 if (!PseudoWriteData(addr, secCnt, dmaIdx))
 #endif
@@ -994,53 +994,103 @@ BOOL CBusHoundCompareDlg::PseudoWriteData(DWORD addr, WORD secCnt, DWORD dmaIdx)
 	return TRUE;
 }
 
-BOOL CBusHoundCompareDlg::PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx)
+BOOL CBusHoundCompareDlg::PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs)
 {
-	__int64 qwFileOffset;
+    ASSERT(secCnt < 0x81);      // 单次传输限制在0x80个sector(64K)
 
-    // 根据扇区数区别对待
-    if (secCnt == 1)
+    __int64 qwFileOffset;
+    __int64 qwDstMapIdx;
+    DWORD dwMapLowAddr;
+    DWORD dwMapHighAddr;
+    map<DWORD, WORD>::iterator iterLow, iterHigh;
+
+    
+
+    if (m_DstFileMap.empty())
     {
-        // 小扇区模式每次写一扇区数据,并更新映射表
-        for (int i = 0; i < secCnt; i++)
-        {
-            if (m_SmallAreaMap.end() == m_SmallAreaMap.find(addr))
-            {
-                m_SmallAreaMap.insert(pair<DWORD, WORD>(addr, m_SmallAreaIdx));
-            }
-            memcpy(&m_lpSmallSecArea[m_SmallAreaMap[addr] * SECTOR], &m_lpucSecotrData[dmaIdx][i*SECTOR], SECTOR);
-
-            addr++;
-            m_SmallAreaIdx++;
-        } 
+        if (!AddNewMapData(addr, secCnt, dmaIdx))
+            return FALSE;
     }
     else
     {
-        if (m_DstFileMap.end() == m_DstFileMap.find(addr))
+        // 寻找 MAP 文件区间中高位部分
+        iterHigh = m_DstFileMap.upper_bound(addr);
+        if (iterHigh == m_DstFileMap.end())
         {
-            m_DstFileMap.insert(pair<DWORD, WORD>(addr, m_DstFileIdx));
-            m_DstSecMap.insert(pair<DWORD, WORD>(addr, secCnt));
-        }
+            iterLow  = iterHigh;
+             iterLow--;
 
-		if (AdjustFileMap(m_DstFileMap[addr], qwFileOffset))
-		{
-			memcpy(&m_lpDstMapAddress[m_DstFileMap[addr] * MAX_TRANSFER_LEN - qwFileOffset], m_lpucSecotrData[dmaIdx], MAX_TRANSFER_LEN);
-		}
-        
-        // 小块数据同步更新到小块缓存中
-        for (map<DWORD, WORD>::iterator iter = m_SmallAreaMap.begin(); iter != m_SmallAreaMap.end(); ++iter)
-        {
-            DWORD smallAddr = (*iter).first;
-            WORD smallIdx = (*iter).second;
-
-            if ((smallAddr >= addr)&&(smallAddr <(addr+ secCnt)))
+            dwMapLowAddr = (*iterLow).first;
+            if ((addr + secCnt) <= (dwMapLowAddr + MAX_TRANS_SEC_NUM))
             {
-                memcpy(&m_lpSmallSecArea[smallIdx*SECTOR], &m_lpucSecotrData[dmaIdx][(smallAddr - addr)*SECTOR], SECTOR);
+                if (AdjustFileMap(m_DstFileMap[addr], qwFileOffset))
+                {
+                    qwDstMapIdx = m_DstFileMap[addr] * MAX_TRANSFER_LEN + (addr - dwMapLowAddr)*SECTOR - qwFileOffset;
+                    memcpy(&m_lpDstMapAddress[qwDstMapIdx], m_lpucSecotrData[dmaIdx], secCnt*SECTOR);
+
+                    m_DstSecMap[dwMapLowAddr] = (m_DstSecMap[dwMapLowAddr] > (addr + secCnt - dwMapLowAddr)) ? m_DstSecMap[dwMapLowAddr] : (WORD)(addr + secCnt - dwMapLowAddr);
+                }               
             }
-            
+            else
+            {
+                if (addr < (dwMapLowAddr + m_DstSecMap[dwMapLowAddr]))
+                {
+                    ShowMissInfo(addr, cmdPhaseOfs);
+                }
+                else
+                {
+                    if (!AddNewMapData(addr, secCnt, dmaIdx))
+                        return FALSE;
+                }
+            }
+            (*iterLow).second;
+
+        }
+        else
+        {
+            iterLow = iterHigh;               // 取巧找文件区间中低位部分方法
+            iterLow--;
+            dwMapHighAddr = (*iterHigh).first;
+            if (iterLow == m_DstFileMap.end())
+            {
+                if (dwMapHighAddr <= (addr + secCnt))
+                {
+                    ShowMissInfo(addr, cmdPhaseOfs);
+                }
+                else
+                {
+                    if (!AddNewMapData(addr, secCnt, dmaIdx))
+                        return FALSE;
+                }
+            }
+            else
+            {
+                dwMapLowAddr = (*iterLow).first;
+                if ((addr + secCnt) <= (dwMapLowAddr + MAX_TRANS_SEC_NUM))
+                {
+                    if (AdjustFileMap(m_DstFileMap[addr], qwFileOffset))
+                    {
+                        qwDstMapIdx = m_DstFileMap[addr] * MAX_TRANSFER_LEN + (addr - dwMapLowAddr)*SECTOR - qwFileOffset;
+                        memcpy(&m_lpDstMapAddress[qwDstMapIdx], m_lpucSecotrData[dmaIdx], secCnt*SECTOR);
+
+                        m_DstSecMap[dwMapLowAddr] = (m_DstSecMap[dwMapLowAddr] > (addr + secCnt - dwMapLowAddr)) ? m_DstSecMap[dwMapLowAddr] : (WORD)(addr + secCnt - dwMapLowAddr);
+                    }
+                }
+                else
+                {
+                    if ((addr < (dwMapLowAddr + m_DstSecMap[dwMapLowAddr]))||(addr+secCnt >= dwMapHighAddr))
+                    {
+                        ShowMissInfo(addr, cmdPhaseOfs);
+                    }
+                    else
+                    {
+                        if (!AddNewMapData(addr, secCnt, dmaIdx))
+                            return FALSE;
+                    }
+                }
+            }
         }
 
-        m_DstFileIdx++;
     }
 
     SetDMAIdxMask(dmaIdx, FALSE);
@@ -1067,6 +1117,22 @@ BOOL CBusHoundCompareDlg::AdjustFileMap(WORD idx, __int64 &qwFileOffset)
     qwFileOffset = m_BlkIdx*m_dwDstBlkSize;
 
 	return TRUE;
+}
+
+BOOL CBusHoundCompareDlg::AddNewMapData(DWORD addr, WORD secCnt, DWORD dmaIdx)
+{
+    __int64 qwFileOffset;
+
+    m_DstFileMap.insert(pair<DWORD, WORD>(addr, m_DstFileIdx));
+    m_DstSecMap.insert(pair<DWORD, WORD>(addr, secCnt));
+
+    if (AdjustFileMap(m_DstFileMap[addr], qwFileOffset))
+    {
+        memcpy(&m_lpDstMapAddress[m_DstFileMap[addr] * MAX_TRANSFER_LEN - qwFileOffset], m_lpucSecotrData[dmaIdx], secCnt*SECTOR);
+        return TRUE;
+    }
+
+    return FALSE;
 }
 
 // 函数名称: PseudoReadData
@@ -1109,71 +1175,85 @@ BOOL CBusHoundCompareDlg::PseudoReadData(DWORD addr, WORD secCnt, DWORD dmaIdx, 
 
 BOOL CBusHoundCompareDlg::PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaIdx, TCHAR *cmdPhaseOfs)
 {
-    BOOL bMatch;
-	__int64 qwFileOffset;
-    // 根据扇区数区别对待
-    if (secCnt == 1)
-    {
-        bMatch = TRUE;
-		DWORD tmpAddr = addr;
-        for (int i = 0; i < secCnt; i++)
-        {
-            if (m_SmallAreaMap.end() != m_SmallAreaMap.find(tmpAddr))
-            {
-                if (0 != memcmp(&m_lpSmallSecArea[m_SmallAreaMap[tmpAddr] * SECTOR], &m_lpucSecotrData[dmaIdx][i*SECTOR], SECTOR))
-                {
-                    bMatch = FALSE;
-                    break;
-                }
-            }
-			else
-				ShowMissInfo(tmpAddr, cmdPhaseOfs);
-			tmpAddr++;
-        }
+    ASSERT(secCnt < 0x81);      // 单次传输限制在0x80个sector(64K)
 
-        if (!bMatch)
-        {
-            ShowErrInfo(addr, cmdPhaseOfs);
-        }
+    BOOL bMatch = TRUE;
+    __int64 qwFileOffset;
+    __int64 qwDstMapIdx;
+    DWORD dwMapLowAddr;
+    DWORD dwMapHighAddr;
+    map<DWORD, WORD>::iterator iterLow, iterHigh;
+
+    if (m_DstFileMap.empty())
+    {
+        ShowMissInfo(addr, cmdPhaseOfs);
     }
     else
     {
-        DWORD tmpAddr = addr;
-        WORD tmpSecCnt = secCnt;
-
-        // 需添加算法减少循环
-        for (map<DWORD, WORD>::iterator iter = m_DstFileMap.begin(); iter != m_DstFileMap.end(); ++iter)
+        // 寻找 MAP 文件区间中高位部分
+        iterHigh = m_DstFileMap.upper_bound(addr);
+        if (iterHigh == m_DstFileMap.end())
         {
-            DWORD fileAddr = (*iter).first;
-            WORD fileIdx = (*iter).second;
-
-            if ((tmpAddr >= fileAddr) && (tmpAddr < (fileAddr + m_DstSecMap[fileAddr])))
+            iterLow = iterHigh;
+            iterLow--;
+            dwMapLowAddr = (*iterLow).first;
+            if ((addr + secCnt) > dwMapLowAddr + m_DstSecMap[dwMapLowAddr])
             {
-                if (AdjustFileMap(m_DstFileMap[tmpAddr], qwFileOffset))
+                ShowMissInfo(addr, cmdPhaseOfs);
+            }
+            else
+            {
+                if (AdjustFileMap(m_DstFileMap[dwMapLowAddr], qwFileOffset))
                 {
-                    // 区块内流程
-                    DWORD dstMapAddr = (DWORD)(m_DstFileMap[fileAddr] * MAX_TRANSFER_LEN - qwFileOffset + (tmpAddr - fileAddr)*SECTOR);
-                    WORD transSec = (WORD)(((fileAddr + m_DstSecMap[fileAddr] - tmpAddr)) > tmpSecCnt ? tmpSecCnt : ((fileAddr + m_DstSecMap[fileAddr] - tmpAddr)));
-                    if (0 != memcmp(&m_lpDstMapAddress[dstMapAddr], &m_lpucSecotrData[dmaIdx][(secCnt - tmpSecCnt)*SECTOR], transSec*SECTOR))
+                    qwDstMapIdx = m_DstFileMap[addr] * MAX_TRANSFER_LEN + (addr - dwMapLowAddr)*SECTOR - qwFileOffset;
+                    if (0 != memcmp(&m_lpDstMapAddress[qwDstMapIdx], m_lpucSecotrData[dmaIdx], secCnt*SECTOR))
                     {
-                        ShowErrInfo(tmpAddr, cmdPhaseOfs);
+                        ShowErrInfo(addr, cmdPhaseOfs);
                     }
-
-                    tmpSecCnt -= transSec;
-                    tmpAddr += transSec;
-
-                    // 比较完成退出循环
-                    if (0 == tmpSecCnt)
-                        break;
                 }
             }
-
         }
-
-        if (tmpSecCnt)
+        else
         {
-            ShowMissInfo(addr, cmdPhaseOfs);
-        }			
+            iterLow = iterHigh;               // 取巧找文件区间中低位部分方法
+            iterLow--;
+            dwMapHighAddr = (*iterHigh).first;
+            if (iterLow == m_DstFileMap.end())
+            {
+                ShowMissInfo(addr, cmdPhaseOfs);
+            }
+            else
+            {
+                dwMapLowAddr = (*iterLow).first;
+                DWORD tmpAddr = addr;
+                WORD tmpSecCnt = secCnt;
+                if (dwMapLowAddr + m_DstSecMap[dwMapLowAddr] == dwMapHighAddr)
+                {
+                    while (secCnt)
+                    {
+                        DWORD mapAddr = (*iterLow++).first;
+                        if (AdjustFileMap(m_DstFileMap[mapAddr], qwFileOffset))
+                        {
+                            DWORD dstMapAddr = (DWORD)(m_DstFileMap[mapAddr] * MAX_TRANSFER_LEN - qwFileOffset + (tmpAddr - mapAddr)*SECTOR);
+                            WORD transSec = (WORD)(m_DstSecMap[mapAddr] + mapAddr - tmpAddr) < tmpSecCnt ? (WORD)(m_DstSecMap[mapAddr] + mapAddr - tmpAddr): tmpSecCnt;
+                            if (0 != memcmp(&m_lpDstMapAddress[dstMapAddr], &m_lpucSecotrData[dmaIdx][((secCnt == tmpSecCnt) ? 0 : (secCnt - transSec))*SECTOR], transSec*SECTOR))
+                            {
+                                bMatch = FALSE;
+                                break;
+                            }
+                            tmpAddr += transSec;
+                            tmpSecCnt -= transSec;
+                        }
+                    }
+                    if(bMatch)
+                        ShowErrInfo(addr, cmdPhaseOfs);
+                }
+                else
+                {
+                    ShowMissInfo(addr, cmdPhaseOfs);
+                }
+            }
+        }
     }
 
     SetDMAIdxMask(dmaIdx, FALSE);
