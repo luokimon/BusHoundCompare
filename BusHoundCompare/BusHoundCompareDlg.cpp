@@ -1023,9 +1023,9 @@ BOOL CBusHoundCompareDlg::PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaI
             dwMapLowAddr = (*iterLow).first;
             if ((addr + secCnt) <= (dwMapLowAddr + MAX_TRANS_SEC_NUM))
             {
-                if (AdjustFileMap(m_DstFileMap[addr], qwFileOffset))
+                if (AdjustFileMap(m_DstFileMap[dwMapLowAddr], qwFileOffset))
                 {
-                    qwDstMapIdx = m_DstFileMap[addr] * MAX_TRANSFER_LEN + (addr - dwMapLowAddr)*SECTOR - qwFileOffset;
+                    qwDstMapIdx = m_DstFileMap[dwMapLowAddr] * MAX_TRANSFER_LEN + (addr - dwMapLowAddr)*SECTOR - qwFileOffset;
                     memcpy(&m_lpDstMapAddress[qwDstMapIdx], m_lpucSecotrData[dmaIdx], secCnt*SECTOR);
 
                     m_DstSecMap[dwMapLowAddr] = (m_DstSecMap[dwMapLowAddr] > (addr + secCnt - dwMapLowAddr)) ? m_DstSecMap[dwMapLowAddr] : (WORD)(addr + secCnt - dwMapLowAddr);
@@ -1043,7 +1043,6 @@ BOOL CBusHoundCompareDlg::PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaI
                         return FALSE;
                 }
             }
-            (*iterLow).second;
 
         }
         else
@@ -1068,9 +1067,9 @@ BOOL CBusHoundCompareDlg::PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaI
                 dwMapLowAddr = (*iterLow).first;
                 if ((addr + secCnt) <= (dwMapLowAddr + MAX_TRANS_SEC_NUM))
                 {
-                    if (AdjustFileMap(m_DstFileMap[addr], qwFileOffset))
+                    if (AdjustFileMap(m_DstFileMap[dwMapLowAddr], qwFileOffset))
                     {
-                        qwDstMapIdx = m_DstFileMap[addr] * MAX_TRANSFER_LEN + (addr - dwMapLowAddr)*SECTOR - qwFileOffset;
+                        qwDstMapIdx = m_DstFileMap[dwMapLowAddr] * MAX_TRANSFER_LEN + (addr - dwMapLowAddr)*SECTOR - qwFileOffset;
                         memcpy(&m_lpDstMapAddress[qwDstMapIdx], m_lpucSecotrData[dmaIdx], secCnt*SECTOR);
 
                         m_DstSecMap[dwMapLowAddr] = (m_DstSecMap[dwMapLowAddr] > (addr + secCnt - dwMapLowAddr)) ? m_DstSecMap[dwMapLowAddr] : (WORD)(addr + secCnt - dwMapLowAddr);
@@ -1078,7 +1077,7 @@ BOOL CBusHoundCompareDlg::PseudoWriteData_Ex(DWORD addr, WORD secCnt, DWORD dmaI
                 }
                 else
                 {
-                    if ((addr < (dwMapLowAddr + m_DstSecMap[dwMapLowAddr]))||(addr+secCnt >= dwMapHighAddr))
+                    if ((addr < (dwMapLowAddr + m_DstSecMap[dwMapLowAddr]))||(addr+secCnt > dwMapHighAddr))
                     {
                         ShowMissInfo(addr, cmdPhaseOfs);
                     }
@@ -1123,7 +1122,7 @@ BOOL CBusHoundCompareDlg::AddNewMapData(DWORD addr, WORD secCnt, DWORD dmaIdx)
 {
     __int64 qwFileOffset;
 
-    m_DstFileMap.insert(pair<DWORD, WORD>(addr, m_DstFileIdx));
+    m_DstFileMap.insert(pair<DWORD, WORD>(addr, m_DstFileIdx++));
     m_DstSecMap.insert(pair<DWORD, WORD>(addr, secCnt));
 
     if (AdjustFileMap(m_DstFileMap[addr], qwFileOffset))
@@ -1205,7 +1204,7 @@ BOOL CBusHoundCompareDlg::PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaId
             {
                 if (AdjustFileMap(m_DstFileMap[dwMapLowAddr], qwFileOffset))
                 {
-                    qwDstMapIdx = m_DstFileMap[addr] * MAX_TRANSFER_LEN + (addr - dwMapLowAddr)*SECTOR - qwFileOffset;
+                    qwDstMapIdx = m_DstFileMap[dwMapLowAddr] * MAX_TRANSFER_LEN + (addr - dwMapLowAddr)*SECTOR - qwFileOffset;
                     if (0 != memcmp(&m_lpDstMapAddress[qwDstMapIdx], m_lpucSecotrData[dmaIdx], secCnt*SECTOR))
                     {
                         ShowErrInfo(addr, cmdPhaseOfs);
@@ -1229,14 +1228,14 @@ BOOL CBusHoundCompareDlg::PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaId
                 WORD tmpSecCnt = secCnt;
                 if (dwMapLowAddr + m_DstSecMap[dwMapLowAddr] == dwMapHighAddr)
                 {
-                    while (secCnt)
+                    while (tmpSecCnt)
                     {
                         DWORD mapAddr = (*iterLow++).first;
                         if (AdjustFileMap(m_DstFileMap[mapAddr], qwFileOffset))
                         {
                             DWORD dstMapAddr = (DWORD)(m_DstFileMap[mapAddr] * MAX_TRANSFER_LEN - qwFileOffset + (tmpAddr - mapAddr)*SECTOR);
                             WORD transSec = (WORD)(m_DstSecMap[mapAddr] + mapAddr - tmpAddr) < tmpSecCnt ? (WORD)(m_DstSecMap[mapAddr] + mapAddr - tmpAddr): tmpSecCnt;
-                            if (0 != memcmp(&m_lpDstMapAddress[dstMapAddr], &m_lpucSecotrData[dmaIdx][((secCnt == tmpSecCnt) ? 0 : (secCnt - transSec))*SECTOR], transSec*SECTOR))
+                            if (0 != memcmp(&m_lpDstMapAddress[dstMapAddr], &m_lpucSecotrData[dmaIdx][(tmpAddr - addr)*SECTOR], transSec*SECTOR))
                             {
                                 bMatch = FALSE;
                                 break;
@@ -1245,12 +1244,20 @@ BOOL CBusHoundCompareDlg::PseudoReadData_Ex(DWORD addr, WORD secCnt, DWORD dmaId
                             tmpSecCnt -= transSec;
                         }
                     }
-                    if(bMatch)
+                    if(!bMatch)
                         ShowErrInfo(addr, cmdPhaseOfs);
                 }
                 else
                 {
-                    ShowMissInfo(addr, cmdPhaseOfs);
+                    //ShowMissInfo(addr, cmdPhaseOfs);
+                    if (AdjustFileMap(m_DstFileMap[dwMapLowAddr], qwFileOffset))
+                    {
+                        qwDstMapIdx = m_DstFileMap[dwMapLowAddr] * MAX_TRANSFER_LEN + (addr - dwMapLowAddr)*SECTOR - qwFileOffset;
+                        if (0 != memcmp(&m_lpDstMapAddress[qwDstMapIdx], m_lpucSecotrData[dmaIdx], secCnt*SECTOR))
+                        {
+                            ShowErrInfo(addr, cmdPhaseOfs);
+                        }
+                    }
                 }
             }
         }
