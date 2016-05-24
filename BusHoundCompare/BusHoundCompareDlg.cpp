@@ -704,6 +704,7 @@ DWORD   CBusHoundCompareDlg::DecodeThread()
 	UINT    uiBlkOffset = 0;
 
 	m_strResidualData.Empty();
+    m_progDecode.SetPos(0);
 
 	AddDisplay(TEXT("解析数据开始!"));
 
@@ -1104,7 +1105,7 @@ BOOL CBusHoundCompareDlg::AdjustFileMap(WORD idx, __int64 &qwFileOffset)
 
 	if (m_BlkIdx != (qwFileOffset / m_dwDstBlkSize))
 	{
-		DWORD blkSize = (DWORD)(((m_nDstFileSize - qwFileOffset) > m_dwDstBlkSize) ? m_dwDstBlkSize : (m_nDstFileSize - qwFileOffset));
+		DWORD blkSize = (DWORD)(((m_nDstFileSize - (qwFileOffset/ m_dwDstBlkSize)*m_dwDstBlkSize) >= m_dwDstBlkSize) ? m_dwDstBlkSize : (m_nDstFileSize - (qwFileOffset / m_dwDstBlkSize)*m_dwDstBlkSize));
 
 		// 创建目标文件位置映射
 		if (!CreateMapAddr(m_hDstFileMap, qwFileOffset, blkSize, m_lpDstMapAddress))
