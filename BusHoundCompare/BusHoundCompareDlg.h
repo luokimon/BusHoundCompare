@@ -24,7 +24,7 @@ using namespace std;
 #define DATA_AREA_MAP_SIZE      (DATA_AREA_SIZE/SECTOR)		// 数据区映射文件长度 
 #define MAX_TRANS_SEC_NUM       (0x80)			// 单次最大传输扇区个数
 
-#define MAX_DMA_NUM				(0x10)			// DMA个数
+#define MAX_DMA_NUM				(0x20)			// DMA个数
 #define BYTE_STRING_LEN         (2)             // 每个字符表示 单字节 所占长度
 
 #define CMD_PHASE_OFS_LEN		(0x12)			// 相位差所占长度
@@ -180,7 +180,7 @@ private:
 	DWORD GetAllocationGranularity();
 	void InitialParam();
 
-	BOOL	CreateMapAddr(HANDLE hFileMap, __int64 &fileOffset, DWORD blkSize, LPBYTE &mapAddr);
+	BOOL	CreateMapAddr(HANDLE hFileMap, __int64 fileOffset, DWORD blkSize, LPBYTE &mapAddr);
 	BOOL	DistroyMapAddr(LPBYTE &mapAddr);
 	BOOL	GetDataOffset(__int64 fileOffset, UINT blkOffset);
 	void	GetDataStartPoint(CString &strLine);

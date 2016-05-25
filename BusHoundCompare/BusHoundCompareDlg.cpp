@@ -577,7 +577,7 @@ BOOL CBusHoundCompareDlg::AddDisplay(LPCTSTR str)
 	return FALSE;
 }
 
-BOOL CBusHoundCompareDlg::CreateMapAddr(HANDLE hFileMap, __int64 &fileOffset, DWORD blkSize, LPBYTE &mapAddr)
+BOOL CBusHoundCompareDlg::CreateMapAddr(HANDLE hFileMap, __int64 fileOffset, DWORD blkSize, LPBYTE &mapAddr)
 {
 	DistroyMapAddr(mapAddr);
 
@@ -1107,11 +1107,12 @@ BOOL CBusHoundCompareDlg::AdjustFileMap(WORD idx, __int64 &qwFileOffset)
 	{
 		DWORD blkSize = (DWORD)(((m_nDstFileSize - (qwFileOffset/ m_dwDstBlkSize)*m_dwDstBlkSize) >= m_dwDstBlkSize) ? m_dwDstBlkSize : (m_nDstFileSize - (qwFileOffset / m_dwDstBlkSize)*m_dwDstBlkSize));
 
+		m_BlkIdx = (DWORD)(qwFileOffset / m_dwDstBlkSize);
+
 		// 创建目标文件位置映射
-		if (!CreateMapAddr(m_hDstFileMap, qwFileOffset, blkSize, m_lpDstMapAddress))
+		if (!CreateMapAddr(m_hDstFileMap, m_dwDstBlkSize*m_BlkIdx, blkSize, m_lpDstMapAddress))
 			return FALSE;
 
-		m_BlkIdx = (DWORD)(qwFileOffset / m_dwDstBlkSize);
 	}
 
     qwFileOffset = m_BlkIdx*m_dwDstBlkSize;
